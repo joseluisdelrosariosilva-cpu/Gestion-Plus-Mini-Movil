@@ -1,0 +1,11 @@
+{
+  "appId": "com.gestionplus.movil.mini",
+  "appName": "Gestión +",
+  "webDir": "src/public",
+  "server": {
+    "androidScheme": "http"
+  },
+  "plugins": {
+    "CapacitorSQLite": {}
+  }
+}

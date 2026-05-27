@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+  <title>Gestión +</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-title">
+        <h1>Gestión Plus</h1>
+      </div>
+       <div class="header-actions">
+         <button id="btnMenu" class="btn-action" onclick="toggleMenu()" title="Menú">
+           ⋮
+         </button>
+           <div id="menuDesplegable" class="menu-desplegable hidden">
+
+               <button onclick="procesarMerma()">📉 Merma</button>
+               <button onclick="mostrarGasto()">💸 Gasto</button>
+               <button onclick="mostrarResumen()">📊 Resumen</button>
+              <button onclick="mostrarFormularioProducto()">➕ Nuevo Producto</button>
+              <button onclick="mostrarAbastecer()">📦 Abastecer</button>
+               <button onclick="mostrarHistorialVentas()">📋 Historial</button>
+              </div>
+       </div>
+    </header>
+
+    <!-- Mensajes -->
+    <div id="mensaje" class="mensaje hidden"></div>
+
+    <!-- Buscador -->
+    <div class="search-box">
+      <div class="search-wrapper">
+        <input type="text" id="searchInput" placeholder="Buscar producto..." autocomplete="off">
+        <button type="button" class="search-clear hidden" id="searchClear" aria-label="Limpiar búsqueda">&times;</button>
+      </div>
+    </div>
+
+    <!-- Lista de productos -->
+    <div id="productosContainer" class="productos-grid">
+      <div class="loading">Cargando productos...</div>
+    </div>
+
+    <!-- Carrito flotante -->
+<div class="carrito-flotante" id="carritoFlotante">
+  <div class="carrito-header" onclick="toggleCarrito()">
+    <div class="carrito-resumen">
+      <span class="carrito-items" id="totalItems">0 productos</span>
+      <span class="carrito-total" id="totalPrecio">$0</span>
+    </div>
+    <span class="carrito-icono" id="carritoIcono">▼</span>
+  </div>
+  
+  <div class="carrito-contenido" id="carritoContenido">
+    <!-- Lista de productos en el carrito -->
+    <ul class="carrito-lista" id="carritoLista"></ul>
+    
+    <!-- Formulario de pago -->
+    <div class="pago-form">
+      <div class="input-group">
+        <label>Efectivo ($)</label>
+        <input type="number" id="efectivo" min="0" step="0.001" value="0" placeholder="0">
+      </div>
+      
+      <div class="input-group">
+        <label>Transferencia ($)</label>
+        <input type="number" id="transferencia" min="0" step="0.001" value="0" placeholder="0">
+      </div>
+      
+      <div class="total-pagar">
+        <span>Total:</span>
+        <span id="totalPagar">$0</span>
+      </div>
+      
+      <button class="btn-pagar" id="btnPagar" disabled>Pagar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal de confirmacion de vuelto -->
+<div id="modalVuelto" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modalVueltoTitulo">
+  <div class="modal-card">
+    <h2 id="modalVueltoTitulo">Confirmar vuelto</h2>
+    <p id="modalVueltoMensaje" class="modal-mensaje"></p>
+    <div class="modal-detalles">
+      <div class="modal-detalle">
+        <span>Total</span>
+        <strong id="modalTotal">$0</strong>
+      </div>
+      <div class="modal-detalle">
+        <span>Pagado</span>
+        <strong id="modalPagado">$0</strong>
+      </div>
+      <div class="modal-detalle modal-vuelto">
+        <span>Vuelto</span>
+        <strong id="modalVueltoMonto">$0</strong>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button type="button" id="modalCancelar" class="modal-btn modal-btn-secundario">Cancelar</button>
+      <button type="button" id="modalConfirmar" class="modal-btn modal-btn-primario">Confirmar entrega</button>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- Modal de Resumen -->
+<div id="modalResumen" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modalResumenTitulo">
+  <div class="modal-card">
+    <!-- Selector de rango de fechas -->
+    <div class="resumen-fecha-rango">
+      <div class="resumen-fecha-campo">
+        <label for="inputFechaResumenInicio">📅 Desde</label>
+        <input type="date" id="inputFechaResumenInicio" value="">
+      </div>
+      <div class="resumen-fecha-separador">→</div>
+      <div class="resumen-fecha-campo">
+        <label for="inputFechaResumenFin">Hasta</label>
+        <input type="date" id="inputFechaResumenFin" value="">
+      </div>
+    </div>
+    
+    <h2 id="modalResumenTitulo">📊 Resumen</h2>
+    <div id="contenidoResumen" class="resumen-contenido">
+      <div class="resumen-totales">
+        <div class="resumen-total">
+          <span>💰 Total Ingresado</span>
+          <strong id="resumenTotal">$0</strong>
+        </div>
+        <div class="resumen-detalle">
+          <span>💵 Efectivo</span>
+          <strong id="resumenEfectivo">$0</strong>
+        </div>
+        <div class="resumen-detalle">
+          <span>🏦 Transferencia</span>
+          <strong id="resumenTransferencia">$0</strong>
+        </div>
+        <!-- Inversión y Ganancia -->
+        <div class="resumen-detalle resumen-inversion">
+          <span>📦 Inversión</span>
+          <strong id="resumenInversion">$0</strong>
+        </div>
+        <div class="resumen-detalle resumen-gastos-total">
+          <span>💸 Gastos</span>
+          <strong id="resumenTotalGastos">$0</strong>
+        </div>
+        <div class="resumen-detalle resumen-mermas-total">
+          <span>🗑️ Mermas</span>
+          <strong id="resumenTotalMermas">$0</strong>
+        </div>
+        <div class="resumen-detalle resumen-ganancia">
+          <span>📈 Ganancia</span>
+          <strong id="resumenGanancia">$0</strong>
+        </div>
+      </div>
+      <h3>Productos Vendidos</h3>
+      <ul id="listaProductosResumen" class="lista-productos-resumen">
+      </ul>
+      <h3 id="gastosTitulo" class="hidden">💸 Gastos Registrados</h3>
+      <ul id="listaGastosResumen" class="lista-productos-resumen"></ul>
+      <h3 id="mermasTitulo" class="hidden">🗑️ Mermas</h3>
+      <ul id="listaMermasResumen" class="lista-productos-resumen"></ul>
+      <h3 id="stockAgotadosTitulo" class="hidden">⚠️ Productos sin stock</h3>
+      <ul id="listaStockAgotados" class="lista-productos-resumen"></ul>
+    </div>
+    <div class="modal-actions" style="display: flex; justify-content: center;">
+      <button type="button" id="modalCerrarResumen" class="modal-btn modal-btn-primario">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal para Nuevo Producto -->
+<!-- Modal para Historial de Ventas -->
+<div id="modalHistorial" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modalHistorialTitulo">
+  <div class="modal-card" style="max-width: 500px;">
+    <h2 id="modalHistorialTitulo">📋 Historial de Ventas</h2>
+    
+    <!-- Selector de fecha -->
+    <div class="resumen-fecha-selector" style="margin-bottom: 15px;">
+      <label for="inputFechaHistorial" style="margin-right: 10px;">📅 Fecha:</label>
+      <input type="date" id="inputFechaHistorial" value="">
+    </div>
+    
+    <!-- Lista de ventas agrupadas -->
+    <div id="contenidoHistorial" class="historial-contenido" style="max-height: 60vh; overflow-y: auto;">
+      <div class="loading">Cargando historial...</div>
+    </div>
+    
+    <div class="modal-actions" style="display: flex; justify-content: center; margin-top: 15px;">
+      <button type="button" id="modalCerrarHistorial" class="modal-btn modal-btn-primario">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<div id="modalNuevoProducto" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modalNuevoProductoTitulo">
+  <div class="modal-card">
+    <h2 id="modalNuevoProductoTitulo">➕ Nuevo Producto</h2>
+    
+    <form id="formNuevoProducto" onsubmit="return false;">
+      <div class="form-group">
+        <label for="npCodigo">Código</label>
+        <input type="text" id="npCodigo" readonly disabled class="input-readonly">
+      </div>
+      
+      <div class="form-group">
+        <label for="npFecha">Fecha</label>
+        <input type="date" id="npFecha" required>
+      </div>
+      
+      <div class="form-group">
+        <label for="npNombre">Nombre</label>
+        <input type="text" id="npNombre" placeholder="Nombre del producto" required autocomplete="off">
+      </div>
+      
+      <div class="form-row-3">
+        <div class="form-group">
+          <label for="npCantidad">Cantidad</label>
+          <input type="number" id="npCantidad" min="0" step="1" value="0" placeholder="0" required>
+        </div>
+        
+        <div class="form-group">
+          <label for="npPrecioVenta">P. Venta ($)</label>
+          <input type="number" id="npPrecioVenta" min="0" step="0.001" value="0" placeholder="0" required>
+        </div>
+        
+        <div class="form-group">
+          <label for="npPrecioCosto">P. Costo ($)</label>
+          <input type="number" id="npPrecioCosto" min="0" step="0.001" value="0" placeholder="0" required>
+        </div>
+      </div>
+      
+      <div class="modal-actions">
+        <button type="button" id="btnCancelarProducto" class="modal-btn modal-btn-secundario">Cancelar</button>
+        <button type="button" id="btnGuardarProducto" class="modal-btn modal-btn-primario">Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal para Abastecer -->
+<div id="modalAbastecer" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modalAbastecerTitulo">
+  <div class="modal-card">
+    <h2 id="modalAbastecerTitulo">📦 Abastecer Producto</h2>
+    
+    <div class="form-group">
+      <label for="abProductoSearch">Producto</label>
+      <div class="searchable-select">
+        <input type="text" id="abProductoSearch" placeholder="Buscar producto..." autocomplete="off">
+        <div class="searchable-dropdown hidden" id="abProductoDropdown"></div>
+        <input type="hidden" id="abProductoCodigo" value="">
+      </div>
+      <div id="abProductoInfo" class="producto-info-selected"></div>
+    </div>
+    
+    <div class="form-group">
+      <label for="abCantidad">Cantidad a agregar</label>
+      <input type="number" id="abCantidad" min="1" step="1" value="1" placeholder="0" required>
+    </div>
+    
+    <div class="modal-actions">
+      <button type="button" id="btnCancelarAbastecer" class="modal-btn modal-btn-secundario">Cancelar</button>
+      <button type="button" id="btnConfirmarAbastecer" class="modal-btn modal-btn-primario">Confirmar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal para Gasto -->
+<div id="modalGasto" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modalGastoModalTitulo">
+  <div class="modal-card">
+    <h2 id="modalGastoModalTitulo">💸 Registrar Gasto</h2>
+
+    <div class="form-group">
+      <label for="gastoFecha">Fecha</label>
+      <input type="date" id="gastoFecha" required>
+    </div>
+
+    <div class="form-group">
+      <label for="gastoDescripcion">Descripción</label>
+      <input type="text" id="gastoDescripcion" placeholder="Ej: Compra de insumos" required autocomplete="off">
+    </div>
+
+    <div class="form-group">
+      <label for="gastoMonto">Monto ($)</label>
+      <input type="number" id="gastoMonto" min="0.001" step="0.001" placeholder="0" required>
+    </div>
+
+    <div class="modal-actions">
+      <button type="button" id="btnCancelarGasto" class="modal-btn modal-btn-secundario">Cancelar</button>
+      <button type="button" id="btnConfirmarGasto" class="modal-btn modal-btn-primario">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== PROTECCIÓN: PANTALLA DE BLOQUEO (se muestra si NO está activado) ===== -->
+<div id="proteccionBloqueo" class="proteccion-overlay">
+  <div class="proteccion-card">
+    <div class="proteccion-icono">🔒</div>
+    <h1 class="proteccion-titulo">Dispositivo no autorizado</h1>
+    <p class="proteccion-descripcion">
+      Este dispositivo no está activado.<br>
+      Enviá el ID de abajo al administrador para obtener la clave de activación.
+    </p>
+
+    <!-- ID del dispositivo -->
+    <div class="proteccion-id-group">
+      <label class="proteccion-label">ID del dispositivo</label>
+      <div class="proteccion-id-wrapper">
+        <code id="proteccionDeviceId" class="proteccion-id">---</code>
+        <button id="btnCopiarId" class="proteccion-btn-copiar" onclick="copiarDeviceId()" title="Copiar ID">📋</button>
+      </div>
+      <p class="proteccion-ayuda">Tocá el ID para copiarlo</p>
+    </div>
+
+    <!-- Clave de activación -->
+    <div class="proteccion-key-group">
+      <label class="proteccion-label">Clave de activación</label>
+      <input type="text" id="proteccionClaveInput" class="proteccion-input" placeholder="XXXX-XXXX-XXXX-XXXX" maxlength="19" autocomplete="off" spellcheck="false">
+      <p id="proteccionError" class="proteccion-error hidden">✕ Clave incorrecta</p>
+    </div>
+
+    <!-- Botón activar -->
+    <button id="btnActivar" class="proteccion-btn" onclick="ejecutarActivacion()">
+      🔓 Activar dispositivo
+    </button>
+
+    <!-- Estados -->
+    <div id="proteccionCargando" class="proteccion-cargando hidden">
+      <div class="proteccion-spinner"></div>
+      <span>Verificando clave...</span>
+    </div>
+    <div id="proteccionExito" class="proteccion-exito hidden">
+      <div class="proteccion-exito-icono">✅</div>
+      <span>Dispositivo activado correctamente</span>
+    </div>
+  </div>
+</div>
+
+<!-- Modal de Contraseña para protección de Resumen e Historial -->
+<div id="modalPassword" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modalPasswordTitulo">
+  <div class="modal-card" style="max-width: 380px;">
+    <h2 id="modalPasswordTitulo">🔒 Contraseña</h2>
+    <p id="modalPasswordMensaje" class="modal-mensaje">Ingresá la contraseña para acceder.</p>
+
+    <!-- Modo VERIFICAR -->
+    <div id="passwordVerifyMode">
+      <div class="form-group">
+        <label for="passwordInput">Contraseña</label>
+        <input type="password" id="passwordInput" class="password-input" placeholder="••••••" autocomplete="off">
+      </div>
+      <div id="passwordError" class="proteccion-error hidden">✕ Contraseña incorrecta</div>
+      <div class="modal-actions" style="margin-top: 16px;">
+        <button type="button" id="btnPasswordCancelar" class="modal-btn modal-btn-secundario">Cancelar</button>
+        <button type="button" id="btnPasswordAceptar" class="modal-btn modal-btn-primario">Acceder</button>
+      </div>
+      <div style="text-align: center; margin-top: 12px;">
+        <button type="button" id="btnPasswordCambiar" class="btn-link">
+          🔑 Cambiar contraseña
+        </button>
+      </div>
+    </div>
+
+    <!-- Modo CAMBIAR CONTRASEÑA -->
+    <div id="passwordChangeMode" class="hidden">
+      <div class="form-group">
+        <label for="passwordOldInput">Contraseña actual</label>
+        <input type="password" id="passwordOldInput" class="password-input" placeholder="••••••" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label for="passwordNewInput">Nueva contraseña</label>
+        <input type="password" id="passwordNewInput" class="password-input" placeholder="••••••" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label for="passwordConfirmInput">Confirmar nueva</label>
+        <input type="password" id="passwordConfirmInput" class="password-input" placeholder="••••••" autocomplete="off">
+      </div>
+      <div id="passwordChangeError" class="proteccion-error hidden"></div>
+      <div id="passwordChangeSuccess" class="proteccion-exito hidden">✅ Contraseña cambiada correctamente</div>
+      <div class="modal-actions" style="margin-top: 16px;">
+        <button type="button" id="btnPasswordChangeVolver" class="modal-btn modal-btn-secundario">Volver</button>
+        <button type="button" id="btnPasswordChangeGuardar" class="modal-btn modal-btn-primario">Guardar</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/js/database.js"></script>
+<script src="/js/app.js"></script>
+ 
+</body>
+</html>
