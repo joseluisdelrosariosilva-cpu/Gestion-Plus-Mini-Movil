@@ -5,6 +5,8 @@
 
 var db = null;
 var storageMode = "none"; // sqlite | local
+var fallbacksCount = 0;   // Operaciones que cayeron a localStorage por error SQLite
+var ultimoErrorFallback = null; // Último mensaje de error que causó fallback
 
 const LS_KEYS = {
   productos: "posmovil_productos",
@@ -34,6 +36,58 @@ function guardarLocal(key, value) {
     console.error("Error guardando localStorage:", e);
     return false;
   }
+}
+
+// Lee un string de localStorage con retrocompatibilidad:
+//   - nuevo formato (guardarLocal → JSON.parse) → JSON.parse
+//   - formato legacy (raw string) → devuelve raw
+function _leerString(key, fallback) {
+  try {
+    var raw = localStorage.getItem(key);
+    if (raw === null) return fallback;
+    try { return JSON.parse(raw); } catch (_) { return raw; }
+  } catch (_) {
+    return fallback;
+  }
+}
+
+/**
+ * Helper para operaciones SQLite con fallback automático a localStorage.
+ * Elimina la duplicación del check (storageMode !== "sqlite" || !db)
+ * y el try/catch con mismo fallback en todas las funciones CRUD.
+ *
+ * @param {function(db): Promise<any>} operacion - Recibe db, ejecuta SQL
+ * @param {function(): any} fallback - Se ejecuta si no hay SQLite o si falla
+ */
+async function conSQLite(operacion, fallback) {
+  if (storageMode !== "sqlite" || !db) {
+    return typeof fallback === "function" ? await fallback() : fallback;
+  }
+  try {
+    return await operacion(db);
+  } catch (error) {
+    console.error("❌ Error en operación SQLite:", error);
+    fallbacksCount++;
+    ultimoErrorFallback = error.message || String(error);
+    return typeof fallback === "function" ? await fallback() : fallback;
+  }
+}
+
+/**
+ * Genera timestamp en formato ISO con HORA LOCAL (sin UTC)
+ * Ejemplo: "2026-05-31T23:00:00.000" (sin Z ni offset)
+ * POLÍTICA: siempre usar hora local del dispositivo en toda la app
+ */
+function fechaLocalISO() {
+  var f = new Date();
+  var y = f.getFullYear();
+  var m = String(f.getMonth() + 1).padStart(2, "0");
+  var d = String(f.getDate()).padStart(2, "0");
+  var hh = String(f.getHours()).padStart(2, "0");
+  var mm = String(f.getMinutes()).padStart(2, "0");
+  var ss = String(f.getSeconds()).padStart(2, "0");
+  var ms = String(f.getMilliseconds()).padStart(3, "0");
+  return y + "-" + m + "-" + d + "T" + hh + ":" + mm + ":" + ss + "." + ms;
 }
 
 function asegurarStoreLocal() {
@@ -173,86 +227,149 @@ function extraerFechaISO(valor) {
   return y + "-" + m + "-" + d;
 }
 
+/**
+ * Crea un wrapper que adapta la API de @capacitor-community/sqlite v8
+ * (Capacitor.Plugins.CapacitorSQLite) a la interfaz que espera el resto del código:
+ *   db.execute(sql, params?)  → rutea a run() / query() / execute() según el caso
+ *   db.query(sql, params?)    → rutea a query()
+ */
+function crearWrapperSQLite(plugin, dbName) {
+  return {
+    execute: async function (sql, params) {
+      var trimmed = sql.trim().toUpperCase();
+
+      // 1) SELECT / WITH → query() (el plugin de Android exige values[])
+      if (trimmed.startsWith("SELECT") || trimmed.startsWith("WITH")) {
+        var res = await plugin.query({
+          database: dbName,
+          statement: sql,
+          values: Array.isArray(params) ? params : [],
+        });
+        return { values: res.values || [] };
+      }
+
+      // 2) Con parámetros → run()
+      if (params !== undefined && params !== null) {
+        var res = await plugin.run({
+          database: dbName,
+          statement: sql,
+          values: Array.isArray(params) ? params : [params],
+        });
+        return { changes: res.changes || { changes: 0 } };
+      }
+
+      // 3) DDL / batch → execute()
+      var res = await plugin.execute({ database: dbName, statements: sql });
+      return { changes: res.changes || { changes: 0 } };
+    },
+
+    query: async function (sql, params) {
+      var res = await plugin.query({
+        database: dbName,
+        statement: sql,
+        values: params || [],
+      });
+      return { values: res.values || [] };
+    },
+  };
+}
+
+/**
+ * Crea TODAS las tablas del esquema SQLite.
+ * Incluye migraciones para columnas que se agregaron después (precio_costo, efectivo).
+ */
+async function crearTablasSQLite() {
+  await db.execute(
+    "CREATE TABLE IF NOT EXISTS productos (codigo TEXT PRIMARY KEY, nombre TEXT, precio REAL, disponibilidad INTEGER)"
+  );
+  await db.execute(
+    "CREATE TABLE IF NOT EXISTS ventas_pending (id INTEGER PRIMARY KEY AUTOINCREMENT, factura_id TEXT, fecha_hora TEXT, codigo_producto TEXT, nombre TEXT, cantidad INTEGER, precio REAL, subtotal REAL, efectivo REAL, transferencia REAL, synced INTEGER DEFAULT 0)"
+  );
+  // Migración para instalaciones viejas (columna mal escrita: efectividad)
+  try {
+    await db.execute("ALTER TABLE ventas_pending ADD COLUMN efectivo REAL DEFAULT 0");
+  } catch (_) {}
+  try {
+    await db.execute("UPDATE ventas_pending SET efectivo = COALESCE(efectivo, efectividad, 0)");
+  } catch (_) {}
+  // Migración: precio_costo en productos
+  try {
+    await db.execute("ALTER TABLE productos ADD COLUMN precio_costo REAL DEFAULT 0");
+  } catch (_) {}
+  // Migración: precio_costo en ventas
+  try {
+    await db.execute("ALTER TABLE ventas_pending ADD COLUMN precio_costo REAL DEFAULT 0");
+  } catch (_) {}
+  await db.execute("CREATE TABLE IF NOT EXISTS config (clave TEXT PRIMARY KEY, valor TEXT, timestamp INTEGER)");
+  await db.execute("CREATE TABLE IF NOT EXISTS mermas_pending (id INTEGER PRIMARY KEY AUTOINCREMENT, codigo_producto TEXT, nombre TEXT, cantidad INTEGER, fecha_hora TEXT, synced INTEGER DEFAULT 0)");
+  await db.execute("CREATE TABLE IF NOT EXISTS entrada_productos_pending (id INTEGER PRIMARY KEY AUTOINCREMENT, codigo TEXT, nombre TEXT, cantidad INTEGER, precio_venta REAL, precio_costo REAL, fecha_hora TEXT, synced INTEGER DEFAULT 0)");
+  await db.execute("CREATE TABLE IF NOT EXISTS abastecer_pending (id INTEGER PRIMARY KEY AUTOINCREMENT, codigo_producto TEXT, nombre TEXT, cantidad INTEGER, fecha_hora TEXT, synced INTEGER DEFAULT 0)");
+  await db.execute("CREATE TABLE IF NOT EXISTS gastos_pending (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, descripcion TEXT, monto REAL, synced INTEGER DEFAULT 0)");
+}
+
 // ============================================
 // INICIALIZAR BASE DE DATOS
 // ============================================
 async function initDatabase() {
+  // SQLite en APK, fallback localStorage en cualquier entorno
   if (!window.Capacitor || !window.Capacitor.isNativePlatform()) {
     activarModoLocal("Entorno no nativo");
     return true;
   }
 
+  // ============================================
+  // 1) Capacitor 8: Capacitor.Plugins.CapacitorSQLite
+  // ============================================
+  var plugin = null;
+  if (window.Capacitor.Plugins && window.Capacitor.Plugins.CapacitorSQLite) {
+    plugin = window.Capacitor.Plugins.CapacitorSQLite;
+  }
+
+  if (plugin) {
+    try {
+      await plugin.createConnection({
+        database: "posmovil",
+        version: 1,
+        encrypted: false,
+        mode: "no-encryption",
+      });
+      await plugin.open({ database: "posmovil" });
+      db = crearWrapperSQLite(plugin, "posmovil");
+      await crearTablasSQLite();
+      console.log("✅ Base de datos SQLite inicializada (Capacitor 8)");
+      storageMode = "sqlite";
+      return true;
+    } catch (error) {
+      console.error("❌ Error inicializando SQLite (Capacitor 8):", error);
+      try { await plugin.closeConnection({ database: "posmovil" }); } catch (_) {}
+      activarModoLocal("Falló init SQLite Capacitor 8: " + (error.message || error));
+      return true;
+    }
+  }
+
+  // ============================================
+  // 2) Fallback: window.SQLite (legacy Capacitor <8 / Cordova)
+  // ============================================
   var sqliteGlobal = window.SQLite;
-  if (!sqliteGlobal || typeof sqliteGlobal.createDatabase !== "function") {
-    activarModoLocal("Plugin SQLite no expuesto como window.SQLite.createDatabase");
-    return true;
+  if (sqliteGlobal && typeof sqliteGlobal.createDatabase === "function") {
+    try {
+      db = await sqliteGlobal.createDatabase({ database: "posmovil.db" });
+      await crearTablasSQLite();
+      console.log("✅ Base de datos SQLite inicializada (legacy)");
+      storageMode = "sqlite";
+      return true;
+    } catch (error) {
+      console.error("❌ Error inicializando SQLite (legacy):", error);
+      activarModoLocal("Falló init SQLite legacy");
+      return true;
+    }
   }
 
-  try {
-    db = await sqliteGlobal.createDatabase({
-      database: "posmovil.db",
-    });
-
-    await db.execute(
-      "CREATE TABLE IF NOT EXISTS productos (codigo TEXT PRIMARY KEY, nombre TEXT, precio REAL, disponibilidad INTEGER)"
-    );
-
-    await db.execute(
-      "CREATE TABLE IF NOT EXISTS ventas_pending (id INTEGER PRIMARY KEY AUTOINCREMENT, factura_id TEXT, fecha_hora TEXT, codigo_producto TEXT, nombre TEXT, cantidad INTEGER, precio REAL, subtotal REAL, efectivo REAL, transferencia REAL, synced INTEGER DEFAULT 0)"
-    );
-
-    try {
-      await db.execute(
-        "ALTER TABLE ventas_pending ADD COLUMN efectivo REAL DEFAULT 0"
-      );
-    } catch (_) {}
-
-    try {
-      await db.execute(
-        "UPDATE ventas_pending SET efectivo = COALESCE(efectivo, efectividad, 0)"
-      );
-    } catch (_) {}
-
-    try {
-      await db.execute(
-        "ALTER TABLE productos ADD COLUMN precio_costo REAL DEFAULT 0"
-      );
-    } catch (_) {}
-
-    try {
-      await db.execute(
-        "ALTER TABLE ventas_pending ADD COLUMN precio_costo REAL DEFAULT 0"
-      );
-    } catch (_) {}
-
-    await db.execute(
-      "CREATE TABLE IF NOT EXISTS config (clave TEXT PRIMARY KEY, valor TEXT, timestamp INTEGER)"
-    );
-
-    await db.execute(
-      "CREATE TABLE IF NOT EXISTS mermas_pending (id INTEGER PRIMARY KEY AUTOINCREMENT, codigo_producto TEXT, nombre TEXT, cantidad INTEGER, fecha_hora TEXT, synced INTEGER DEFAULT 0)"
-    );
-
-    await db.execute(
-      "CREATE TABLE IF NOT EXISTS entrada_productos_pending (id INTEGER PRIMARY KEY AUTOINCREMENT, codigo TEXT, nombre TEXT, cantidad INTEGER, precio_venta REAL, precio_costo REAL, fecha_hora TEXT, synced INTEGER DEFAULT 0)"
-    );
-
-    await db.execute(
-      "CREATE TABLE IF NOT EXISTS abastecer_pending (id INTEGER PRIMARY KEY AUTOINCREMENT, codigo_producto TEXT, nombre TEXT, cantidad INTEGER, fecha_hora TEXT, synced INTEGER DEFAULT 0)"
-    );
-
-    await db.execute(
-      "CREATE TABLE IF NOT EXISTS gastos_pending (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, descripcion TEXT, monto REAL, synced INTEGER DEFAULT 0)"
-    );
-
-    console.log("Base de datos SQLite inicializada");
-    storageMode = "sqlite";
-    return true;
-  } catch (error) {
-    console.error("Error inicializando SQLite:", error);
-    activarModoLocal("Falló init SQLite");
-    return true;
-  }
+  // ============================================
+  // 3) No hay plugin SQLite → localStorage
+  // ============================================
+  activarModoLocal("Plugin SQLite no expuesto");
+  return true;
 }
 
 // ============================================
@@ -299,29 +416,27 @@ async function guardarNuevoProducto(producto) {
     return false;
   }
 
-  if (storageMode !== "sqlite" || !db) {
-    var productosLocal = leerLocal(LS_KEYS.productos, []);
-    productosLocal.push({
-      codigo: producto.codigo,
-      nombre: producto.nombre,
-      precio: Number(producto.precioVenta || 0),
-      disponibilidad: Number(producto.cantidad || 0),
-      precio_costo: Number(producto.precioCosto || 0),
-    });
-    return guardarLocal(LS_KEYS.productos, productosLocal);
-  }
-
-  try {
-    await db.execute(
-      "INSERT OR REPLACE INTO productos (codigo, nombre, precio, disponibilidad, precio_costo) VALUES (?, ?, ?, ?, ?)",
-      [producto.codigo, producto.nombre, Number(producto.precioVenta || 0), Number(producto.cantidad || 0), Number(producto.precioCosto || 0)]
-    );
-    console.log("Nuevo producto guardado:", producto.codigo);
-    return true;
-  } catch (error) {
-    console.error("Error guardando nuevo producto:", error);
-    return false;
-  }
+  return conSQLite(
+    async (db) => {
+      await db.execute(
+        "INSERT OR REPLACE INTO productos (codigo, nombre, precio, disponibilidad, precio_costo) VALUES (?, ?, ?, ?, ?)",
+        [producto.codigo, producto.nombre, Number(producto.precioVenta || 0), Number(producto.cantidad || 0), Number(producto.precioCosto || 0)]
+      );
+      console.log("✅ Nuevo producto guardado:", producto.codigo);
+      return true;
+    },
+    function() {
+      var productosLocal = leerLocal(LS_KEYS.productos, []);
+      productosLocal.push({
+        codigo: producto.codigo,
+        nombre: producto.nombre,
+        precio: Number(producto.precioVenta || 0),
+        disponibilidad: Number(producto.cantidad || 0),
+        precio_costo: Number(producto.precioCosto || 0),
+      });
+      return guardarLocal(LS_KEYS.productos, productosLocal);
+    }
+  );
 }
 
 // ============================================
@@ -332,69 +447,63 @@ async function guardarEntradaProductoCompleto(producto) {
     return false;
   }
 
+  // 1. Guardar en tabla productos (disponible para venta)
   var guardadoEnProductos = await guardarNuevoProducto(producto);
   if (!guardadoEnProductos) {
-    console.error("Error guardando en tabla productos");
+    console.error("❌ Error guardando en tabla productos");
     return false;
   }
 
-  var fechaHora = new Date().toISOString();
+  // 2. Guardar en tabla entrada_productos_pending (para sync al servidor)
+  var fechaHora = fechaLocalISO();
 
-  if (storageMode !== "sqlite" || !db) {
-    var entradas = leerLocal(LS_KEYS.entrada_productos, []);
-    entradas.push({
-      id: Date.now() + Math.floor(Math.random() * 1000),
-      codigo: producto.codigo,
-      nombre: producto.nombre,
-      cantidad: Number(producto.cantidad || 0),
-      precio_venta: Number(producto.precioVenta || 0),
-      precio_costo: Number(producto.precioCosto || 0),
-      fecha_hora: fechaHora,
-      synced: 0,
-    });
-    console.log("Guardado en localStorage, total entradas:", entradas.length);
-    return guardarLocal(LS_KEYS.entrada_productos, entradas);
-  }
-
-  try {
-    await db.execute(
-      "INSERT INTO entrada_productos_pending (codigo, nombre, cantidad, precio_venta, precio_costo, fecha_hora, synced) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [
-        producto.codigo,
-        producto.nombre,
-        Number(producto.cantidad || 0),
-        Number(producto.precioVenta || 0),
-        Number(producto.precioCosto || 0),
-        fechaHora,
-        0
-      ]
-    );
-    console.log("Entrada de producto guardada:", producto.codigo);
-    return true;
-  } catch (error) {
-    console.error("Error guardando entrada_producto_pending:", error.message);
-    return false;
-  }
+  return conSQLite(
+    async (db) => {
+      await db.execute(
+        "INSERT INTO entrada_productos_pending (codigo, nombre, cantidad, precio_venta, precio_costo, fecha_hora, synced) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [
+          producto.codigo,
+          producto.nombre,
+          Number(producto.cantidad || 0),
+          Number(producto.precioVenta || 0),
+          Number(producto.precioCosto || 0),
+          fechaHora,
+          0
+        ]
+      );
+      console.log("✅ Entrada de producto guardada:", producto.codigo);
+      return true;
+    },
+    function() {
+      var entradas = leerLocal(LS_KEYS.entrada_productos, []);
+      entradas.push({
+        id: Date.now() + Math.floor(Math.random() * 1000),
+        codigo: producto.codigo,
+        nombre: producto.nombre,
+        cantidad: Number(producto.cantidad || 0),
+        precio_venta: Number(producto.precioVenta || 0),
+        precio_costo: Number(producto.precioCosto || 0),
+        fecha_hora: fechaHora,
+        synced: 0,
+      });
+      return guardarLocal(LS_KEYS.entrada_productos, entradas);
+    }
+  );
 }
 
 // ============================================
 // OBTENER PRODUCTOS DESDE SQLite
 // ============================================
 async function getProductosLocal() {
-  if (storageMode !== "sqlite" || !db) {
-    return leerLocal(LS_KEYS.productos, []);
-  }
-
-  try {
-    var result = await db.execute(
-      "SELECT codigo, nombre, precio, disponibilidad, precio_costo FROM productos ORDER BY nombre"
-    );
-    return result.values || [];
-  } catch (error) {
-    console.error("Error obteniendo productos:", error);
-    activarModoLocal("Error consultando productos SQLite");
-    return leerLocal(LS_KEYS.productos, []);
-  }
+  return conSQLite(
+    async (db) => {
+      var result = await db.execute(
+        "SELECT codigo, nombre, precio, disponibilidad, precio_costo FROM productos ORDER BY nombre"
+      );
+      return result.values || [];
+    },
+    () => leerLocal(LS_KEYS.productos, [])
+  );
 }
 
 // ============================================
@@ -403,28 +512,23 @@ async function getProductosLocal() {
 async function syncProductosLocal(productos) {
   var normalizados = (productos || []).map(normalizarProducto);
 
-  if (storageMode !== "sqlite" || !db) {
-    return guardarLocal(LS_KEYS.productos, normalizados);
-  }
+  return conSQLite(
+    async (db) => {
+      await db.execute("DELETE FROM productos");
 
-  try {
-    await db.execute("DELETE FROM productos");
+      for (var i = 0; i < normalizados.length; i++) {
+        var p = normalizados[i];
+        await db.execute(
+          "INSERT OR REPLACE INTO productos (codigo, nombre, precio, disponibilidad, precio_costo) VALUES (?, ?, ?, ?, ?)",
+          [p.codigo, p.nombre, p.precio || 0, p.disponibilidad || 0, p.precio_costo || 0]
+        );
+      }
 
-    for (var i = 0; i < normalizados.length; i++) {
-      var p = normalizados[i];
-      await db.execute(
-        "INSERT OR REPLACE INTO productos (codigo, nombre, precio, disponibilidad, precio_costo) VALUES (?, ?, ?, ?, ?)",
-        [p.codigo, p.nombre, p.precio || 0, p.disponibilidad || 0, p.precio_costo || 0]
-      );
-    }
-
-    console.log(normalizados.length + " productos guardados");
-    return true;
-  } catch (error) {
-    console.error("Error guardando productos:", error);
-    activarModoLocal("Error guardando productos en SQLite");
-    return guardarLocal(LS_KEYS.productos, normalizados);
-  }
+      console.log("✅ " + normalizados.length + " productos guardados en SQLite");
+      return true;
+    },
+    () => guardarLocal(LS_KEYS.productos, normalizados)
+  );
 }
 
 // ============================================
@@ -435,40 +539,14 @@ async function guardarVentaOffline(venta) {
     return false;
   }
 
-  if (storageMode !== "sqlite" || !db) {
-    var actuales = leerLocal(LS_KEYS.ventas, []);
-    var lineas = construirLineasVenta(venta);
-    return guardarLocal(LS_KEYS.ventas, actuales.concat(lineas));
-  }
+  return conSQLite(
+    async (db) => {
+      for (var i = 0; i < venta.productos.length; i++) {
+        var item = venta.productos[i];
 
-  try {
-    for (var i = 0; i < venta.productos.length; i++) {
-      var item = venta.productos[i];
-
-      try {
-        await db.execute(
-          "INSERT INTO ventas_pending (factura_id, fecha_hora, codigo_producto, nombre, cantidad, precio, precio_costo, subtotal, efectivo, transferencia, synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
-          [
-            venta.facturaId,
-            venta.fechaHora,
-            item.codigo,
-            item.nombre,
-            item.cantidad,
-            item.precio,
-            Number(item.precio_costo || 0),
-            item.cantidad * item.precio,
-            venta.pago.efectivo,
-            venta.pago.transferencia,
-          ]
-        );
-      } catch (insertError) {
-        if (
-          insertError &&
-          insertError.message &&
-          insertError.message.indexOf("efectivo") !== -1
-        ) {
+        try {
           await db.execute(
-            "INSERT INTO ventas_pending (factura_id, fecha_hora, codigo_producto, nombre, cantidad, precio, precio_costo, subtotal, efectividad, transferencia, synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
+            "INSERT INTO ventas_pending (factura_id, fecha_hora, codigo_producto, nombre, cantidad, precio, precio_costo, subtotal, efectivo, transferencia, synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
             [
               venta.facturaId,
               venta.fechaHora,
@@ -482,21 +560,43 @@ async function guardarVentaOffline(venta) {
               venta.pago.transferencia,
             ]
           );
-        } else {
-          throw insertError;
+        } catch (insertError) {
+          // Compatibilidad con esquemas viejos que usan 'efectividad'
+          if (
+            insertError &&
+            insertError.message &&
+            insertError.message.indexOf("efectivo") !== -1
+          ) {
+            await db.execute(
+              "INSERT INTO ventas_pending (factura_id, fecha_hora, codigo_producto, nombre, cantidad, precio, precio_costo, subtotal, efectividad, transferencia, synced) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)",
+              [
+                venta.facturaId,
+                venta.fechaHora,
+                item.codigo,
+                item.nombre,
+                item.cantidad,
+                item.precio,
+                Number(item.precio_costo || 0),
+                item.cantidad * item.precio,
+                venta.pago.efectivo,
+                venta.pago.transferencia,
+              ]
+            );
+          } else {
+            throw insertError;
+          }
         }
       }
-    }
 
-    console.log("Venta guardada");
-    return true;
-  } catch (error) {
-    console.error("Error guardando venta:", error);
-    activarModoLocal("Error guardando ventas en SQLite");
-    var actuales2 = leerLocal(LS_KEYS.ventas, []);
-    var lineas2 = construirLineasVenta(venta);
-    return guardarLocal(LS_KEYS.ventas, actuales2.concat(lineas2));
-  }
+      console.log("✅ Venta guardada offline");
+      return true;
+    },
+    function() {
+      var actuales = leerLocal(LS_KEYS.ventas, []);
+      var lineas = construirLineasVenta(venta);
+      return guardarLocal(LS_KEYS.ventas, actuales.concat(lineas));
+    }
+  );
 }
 
 // ============================================
@@ -722,50 +822,36 @@ async function guardarMermaOffline(merma) {
     return false;
   }
 
-  if (storageMode !== "sqlite" || !db) {
-    var actuales = leerLocal(LS_KEYS.mermas, []);
-    var lineas = [];
-    for (var i = 0; i < merma.productos.length; i++) {
-      var item = merma.productos[i];
-      lineas.push({
-        id: Date.now() + i + Math.floor(Math.random() * 1000),
+  function construirLineasMerma() {
+    return (merma.productos || []).map(function(item, idx) {
+      return {
+        id: Date.now() + idx + Math.floor(Math.random() * 1000),
         codigo_producto: item.codigo,
         nombre: item.nombre,
         cantidad: Number(item.cantidad || 0),
         fecha_hora: merma.fechaHora,
         synced: 0,
-      });
-    }
-    return guardarLocal(LS_KEYS.mermas, actuales.concat(lineas));
+      };
+    });
   }
 
-  try {
-    for (var j = 0; j < merma.productos.length; j++) {
-      var prod = merma.productos[j];
-      await db.execute(
-        "INSERT INTO mermas_pending (codigo_producto, nombre, cantidad, fecha_hora, synced) VALUES (?, ?, ?, ?, 0)",
-        [prod.codigo, prod.nombre, prod.cantidad, merma.fechaHora]
-      );
+  return conSQLite(
+    async (db) => {
+      for (var j = 0; j < merma.productos.length; j++) {
+        var prod = merma.productos[j];
+        await db.execute(
+          "INSERT INTO mermas_pending (codigo_producto, nombre, cantidad, fecha_hora, synced) VALUES (?, ?, ?, ?, 0)",
+          [prod.codigo, prod.nombre, prod.cantidad, merma.fechaHora]
+        );
+      }
+      console.log("✅ Merma guardada offline (" + merma.productos.length + " productos)");
+      return true;
+    },
+    function() {
+      var actuales = leerLocal(LS_KEYS.mermas, []);
+      return guardarLocal(LS_KEYS.mermas, actuales.concat(construirLineasMerma()));
     }
-    console.log("Merma guardada (" + merma.productos.length + " productos)");
-    return true;
-  } catch (error) {
-    console.error("Error guardando merma:", error);
-    var actuales2 = leerLocal(LS_KEYS.mermas, []);
-    var lineas2 = [];
-    for (var k = 0; k < merma.productos.length; k++) {
-      var p = merma.productos[k];
-      lineas2.push({
-        id: Date.now() + k + Math.floor(Math.random() * 1000),
-        codigo_producto: p.codigo,
-        nombre: p.nombre,
-        cantidad: Number(p.cantidad || 0),
-        fecha_hora: merma.fechaHora,
-        synced: 0,
-      });
-    }
-    return guardarLocal(LS_KEYS.mermas, actuales2.concat(lineas2));
-  }
+  );
 }
 
 // ============================================
@@ -774,34 +860,32 @@ async function guardarMermaOffline(merma) {
 
 // Actualizar stock de un producto (sumar cantidad)
 async function actualizarStockProducto(codigo, cantidadSumar) {
-  if (storageMode !== "sqlite" || !db) {
-    var productosLocal = leerLocal(LS_KEYS.productos, []);
-    var encontrado = false;
-    for (var i = 0; i < productosLocal.length; i++) {
-      if (productosLocal[i].codigo === codigo) {
-        productosLocal[i].disponibilidad = Number(productosLocal[i].disponibilidad || 0) + Number(cantidadSumar);
-        encontrado = true;
-        break;
-      }
-    }
-    if (encontrado) {
-      guardarLocal(LS_KEYS.productos, productosLocal);
+  return conSQLite(
+    async (db) => {
+      await db.execute(
+        "UPDATE productos SET disponibilidad = disponibilidad + ? WHERE codigo = ?",
+        [Number(cantidadSumar), codigo]
+      );
+      console.log("✅ Stock actualizado para " + codigo + " (+" + cantidadSumar + ")");
       return true;
+    },
+    function() {
+      var productosLocal = leerLocal(LS_KEYS.productos, []);
+      var encontrado = false;
+      for (var i = 0; i < productosLocal.length; i++) {
+        if (productosLocal[i].codigo === codigo) {
+          productosLocal[i].disponibilidad = Number(productosLocal[i].disponibilidad || 0) + Number(cantidadSumar);
+          encontrado = true;
+          break;
+        }
+      }
+      if (encontrado) {
+        guardarLocal(LS_KEYS.productos, productosLocal);
+        return true;
+      }
+      return false;
     }
-    return false;
-  }
-
-  try {
-    await db.execute(
-      "UPDATE productos SET disponibilidad = disponibilidad + ? WHERE codigo = ?",
-      [Number(cantidadSumar), codigo]
-    );
-    console.log("Stock actualizado para " + codigo + " (+" + cantidadSumar + ")");
-    return true;
-  } catch (error) {
-    console.error("Error actualizando stock:", error);
-    return false;
-  }
+  );
 }
 
 // Guardar abastecimiento en SQLite/localStorage
@@ -810,38 +894,38 @@ async function guardarAbastecerOffline(abastecer) {
     return false;
   }
 
+  // 1. Sumar cantidad al stock en tabla productos
   var stockActualizado = await actualizarStockProducto(abastecer.codigo, abastecer.cantidad);
   if (!stockActualizado) {
-    console.error("Error actualizando stock del producto");
+    console.error("❌ Error actualizando stock del producto");
     return false;
   }
 
-  var fechaHora = new Date().toISOString();
+  // 2. Guardar registro en abastecer_pending
+  var fechaHora = fechaLocalISO();
 
-  if (storageMode !== "sqlite" || !db) {
-    var abastecimientos = leerLocal(LS_KEYS.abastecer, []);
-    abastecimientos.push({
-      id: Date.now() + Math.floor(Math.random() * 1000),
-      codigo_producto: abastecer.codigo,
-      nombre: abastecer.nombre,
-      cantidad: Number(abastecer.cantidad),
-      fecha_hora: fechaHora,
-      synced: 0,
-    });
-    return guardarLocal(LS_KEYS.abastecer, abastecimientos);
-  }
-
-  try {
-    await db.execute(
-      "INSERT INTO abastecer_pending (codigo_producto, nombre, cantidad, fecha_hora, synced) VALUES (?, ?, ?, ?, ?)",
-      [abastecer.codigo, abastecer.nombre, Number(abastecer.cantidad), fechaHora, 0]
-    );
-    console.log("Abastecimiento guardado:", abastecer.codigo, "+" + abastecer.cantidad);
-    return true;
-  } catch (error) {
-    console.error("Error guardando abastecimiento:", error);
-    return false;
-  }
+  return conSQLite(
+    async (db) => {
+      await db.execute(
+        "INSERT INTO abastecer_pending (codigo_producto, nombre, cantidad, fecha_hora, synced) VALUES (?, ?, ?, ?, ?)",
+        [abastecer.codigo, abastecer.nombre, Number(abastecer.cantidad), fechaHora, 0]
+      );
+      console.log("✅ Abastecimiento guardado:", abastecer.codigo, "+" + abastecer.cantidad);
+      return true;
+    },
+    function() {
+      var abastecimientos = leerLocal(LS_KEYS.abastecer, []);
+      abastecimientos.push({
+        id: Date.now() + Math.floor(Math.random() * 1000),
+        codigo_producto: abastecer.codigo,
+        nombre: abastecer.nombre,
+        cantidad: Number(abastecer.cantidad),
+        fecha_hora: fechaHora,
+        synced: 0,
+      });
+      return guardarLocal(LS_KEYS.abastecer, abastecimientos);
+    }
+  );
 }
 
 // ============================================
@@ -854,57 +938,47 @@ async function guardarGastoOffline(gasto) {
     return false;
   }
 
-  var fecha = gasto.fecha || new Date().toISOString().split("T")[0];
+  var fecha = gasto.fecha || fechaLocalISO().split("T")[0];
   var monto = Number(gasto.monto) || 0;
 
-  if (storageMode !== "sqlite" || !db) {
-    var actuales = leerLocal(LS_KEYS.gastos, []);
-    actuales.push({
+  function construirGasto() {
+    return {
       id: Date.now() + Math.floor(Math.random() * 1000),
       fecha: fecha,
       descripcion: gasto.descripcion,
       monto: monto,
       synced: 0,
-    });
-    return guardarLocal(LS_KEYS.gastos, actuales);
+    };
   }
 
-  try {
-    await db.execute(
-      "INSERT INTO gastos_pending (fecha, descripcion, monto, synced) VALUES (?, ?, ?, 0)",
-      [fecha, gasto.descripcion, monto]
-    );
-    console.log("Gasto guardado:", gasto.descripcion, "$" + monto);
-    return true;
-  } catch (error) {
-    console.error("Error guardando gasto:", error);
-    var actuales2 = leerLocal(LS_KEYS.gastos, []);
-    actuales2.push({
-      id: Date.now() + Math.floor(Math.random() * 1000),
-      fecha: fecha,
-      descripcion: gasto.descripcion,
-      monto: monto,
-      synced: 0,
-    });
-    return guardarLocal(LS_KEYS.gastos, actuales2);
-  }
+  return conSQLite(
+    async (db) => {
+      await db.execute(
+        "INSERT INTO gastos_pending (fecha, descripcion, monto, synced) VALUES (?, ?, ?, 0)",
+        [fecha, gasto.descripcion, monto]
+      );
+      console.log("✅ Gasto guardado offline:", gasto.descripcion, "$" + monto);
+      return true;
+    },
+    function() {
+      var actuales = leerLocal(LS_KEYS.gastos, []);
+      actuales.push(construirGasto());
+      return guardarLocal(LS_KEYS.gastos, actuales);
+    }
+  );
 }
 
 // ============================================
 // LEER GASTOS DEL DÍA DESDE BD LOCAL
 // ============================================
 async function leerGastosDelDia(fecha) {
-  var gastos = [];
-  if (storageMode === "sqlite" && db) {
-    try {
+  var gastos = await conSQLite(
+    async (db) => {
       var result = await db.execute("SELECT * FROM gastos_pending ORDER BY id");
-      gastos = result.values || [];
-    } catch (e) {
-      gastos = leerLocal(LS_KEYS.gastos, []);
-    }
-  } else {
-    gastos = leerLocal(LS_KEYS.gastos, []);
-  }
+      return result.values || [];
+    },
+    () => leerLocal(LS_KEYS.gastos, [])
+  );
   gastos = gastos.filter(function(g) {
     return (g.fecha || "").substring(0, 10) === fecha;
   });
@@ -956,23 +1030,21 @@ async function getStockAgotadosEnRango(fechaInicio, fechaFin) {
 async function eliminarProductoLocal(codigo) {
   if (!codigo) return false;
 
-  if (storageMode !== "sqlite" || !db) {
-    var productosLocal = leerLocal(LS_KEYS.productos, []);
-    var filtrados = productosLocal.filter(function(p) {
-      return String(p.codigo) !== String(codigo);
-    });
-    if (filtrados.length === productosLocal.length) return false;
-    return guardarLocal(LS_KEYS.productos, filtrados);
-  }
-
-  try {
-    await db.execute("DELETE FROM productos WHERE codigo = ?", [codigo]);
-    console.log("Producto eliminado de SQLite:", codigo);
-    return true;
-  } catch (error) {
-    console.error("Error eliminando producto de SQLite:", error);
-    return false;
-  }
+  return conSQLite(
+    async (db) => {
+      await db.execute("DELETE FROM productos WHERE codigo = ?", [codigo]);
+      console.log("✅ Producto eliminado de SQLite:", codigo);
+      return true;
+    },
+    function() {
+      var productosLocal = leerLocal(LS_KEYS.productos, []);
+      var filtrados = productosLocal.filter(function(p) {
+        return String(p.codigo) !== String(codigo);
+      });
+      if (filtrados.length === productosLocal.length) return false;
+      return guardarLocal(LS_KEYS.productos, filtrados);
+    }
+  );
 }
 
 // ============================================
@@ -1345,6 +1417,81 @@ async function limpiarActivacion() {
 }
 
 // ============================================
+// GENERAR ID DE FACTURA (secuencial, estilo Excel)
+// ============================================
+/**
+ * Genera un ID único de factura basado en fecha como "4567800001" (prefijo + sufijo)
+ * El prefijo son días desde 1900-01-01, el sufijo es secuencial por día.
+ * Persiste en localStorage con guardarLocal() para detectar fallos de cuota.
+ */
+function generarFacturaId() {
+  var now = new Date();
+  var hoyISO = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+
+  // Leer referencia guardada del servidor Y su fecha (retrocompatible con datos legacy)
+  var ultimaReferencia = _leerString('posmovil_ultima_factura_referencia');
+  var fechaReferencia = _leerString('posmovil_fecha_referencia');
+
+  // Si tenemos referencia Y fecha, usarlas
+  if (ultimaReferencia && ultimaReferencia.length >= 10 && fechaReferencia) {
+    var prefijoRef = ultimaReferencia.substring(0, 5);
+    var sufijoRef = parseInt(ultimaReferencia.substring(5, 10)) || 0;
+    var refDate = new Date(fechaReferencia);
+    var todayDate = new Date(hoyISO);
+    var msPerDay = 1000 * 60 * 60 * 24;
+    var diasDiff = Math.floor((todayDate - refDate) / msPerDay);
+    var prefijoHoy = String(Number(prefijoRef) + diasDiff).padStart(5, '0');
+
+    if (diasDiff === 0) {
+      // Mismo día que la referencia, incrementar sufijo
+      var nuevoSufijo = sufijoRef + 1;
+      var sufijo = String(nuevoSufijo).padStart(5, '0');
+      var nuevoId = prefijoHoy + sufijo;
+
+      if (!guardarLocal('posmovil_ultima_factura_referencia', nuevoId)) {
+        console.error("🚨 [generarFacturaId] No se pudo guardar referencia — riesgo de ID duplicado");
+      }
+      guardarLocal('posmovil_ultimo_prefijo', prefijoHoy);
+      guardarLocal('posmovil_ultimo_sufijo', String(nuevoSufijo));
+
+      console.log('📋 FacturaID generado: ' + nuevoId + ' (mismo día que referencia)');
+      return nuevoId;
+    } else {
+      // Nuevo día (o días), empezar sufijo en 1
+      var nuevoId = prefijoHoy + "00001";
+
+      if (!guardarLocal('posmovil_ultima_factura_referencia', nuevoId)) {
+        console.error("🚨 [generarFacturaId] No se pudo guardar referencia — riesgo de ID duplicado");
+      }
+      guardarLocal('posmovil_ultimo_prefijo', prefijoHoy);
+      guardarLocal('posmovil_ultimo_sufijo', '1');
+      guardarLocal('posmovil_fecha_referencia', hoyISO);
+
+      console.log('📋 FacturaID generado: ' + nuevoId + ' (nuevo día, díasDiff=' + diasDiff + ')');
+      return nuevoId;
+    }
+  }
+
+  // Fallback: sin referencia, usar la fecha actual (primera vez)
+  var fechaBase = new Date(1900, 0, 1);
+  var diffMs = now - fechaBase;
+  var diffDias = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  var fechaSerial = diffDias + 2;
+  var prefijoHoy = String(Math.floor(fechaSerial)).padStart(5, '0');
+  var nuevoId = prefijoHoy + "00001";
+
+  if (!guardarLocal('posmovil_ultima_factura_referencia', nuevoId)) {
+    console.error("🚨 [generarFacturaId] No se pudo guardar referencia — riesgo de ID duplicado");
+  }
+  guardarLocal('posmovil_ultimo_prefijo', prefijoHoy);
+  guardarLocal('posmovil_ultimo_sufijo', '1');
+  guardarLocal('posmovil_fecha_referencia', hoyISO);
+
+  console.log('📋 FacturaID generado (sin referencia): ' + nuevoId);
+  return nuevoId;
+}
+
+// ============================================
 // EXPORTAR COMO MÓDULO GLOBAL
 // ============================================
 window.Database = {
@@ -1374,6 +1521,8 @@ window.Database = {
   getStockAgotadosEnRango: getStockAgotadosEnRango,
   // Eliminar producto
   eliminarProductoLocal: eliminarProductoLocal,
+  // Generar ID de factura
+  generarFacturaId: generarFacturaId,
   // Funciones de activación
   generateDeviceId: generateDeviceId,
   computeActivationKey: computeActivationKey,

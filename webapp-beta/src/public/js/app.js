@@ -788,7 +788,7 @@ async function finalizarVenta() {
   }
 
   const ventaData = {
-    facturaId: generarFacturaId(),
+    facturaId: DB.generarFacturaId ? DB.generarFacturaId() : Date.now().toString(),
     fechaHora: (function() {
       const f = new Date();
       return f.getFullYear() + '-' +
@@ -1263,76 +1263,6 @@ document.addEventListener("DOMContentLoaded", function() {
 // ============================================
 // GENERAR FACTURA ID
 // ============================================
-function generarFacturaId() {
-  const now = new Date();
-  const hoyISO = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
-
-  let ultimaReferencia = null;
-  let fechaReferencia = null;
-  try {
-    ultimaReferencia = localStorage.getItem('posmovil_ultima_factura_referencia');
-    fechaReferencia = localStorage.getItem('posmovil_fecha_referencia');
-  } catch(e) {}
-
-  if (ultimaReferencia && ultimaReferencia.length >= 10 && fechaReferencia) {
-    const prefijoRef = ultimaReferencia.substring(0, 5);
-    const sufijoRef = parseInt(ultimaReferencia.substring(5, 10)) || 0;
-
-    const refDate = new Date(fechaReferencia);
-    const todayDate = new Date(hoyISO);
-    const msPerDay = 1000 * 60 * 60 * 24;
-    const diasDiff = Math.floor((todayDate - refDate) / msPerDay);
-
-    const prefijoHoy = String(Number(prefijoRef) + diasDiff).padStart(5, '0');
-
-    if (diasDiff === 0) {
-      const nuevoSufijo = sufijoRef + 1;
-      const sufijo = nuevoSufijo.toString().padStart(5, '0');
-      const nuevoId = prefijoHoy + sufijo;
-
-      try {
-        localStorage.setItem('posmovil_ultima_factura_referencia', nuevoId);
-        localStorage.setItem('posmovil_ultimo_prefijo', prefijoHoy);
-        localStorage.setItem('posmovil_ultimo_sufijo', nuevoSufijo.toString());
-      } catch(e) {}
-
-      console.log('FacturaID generado: ' + nuevoId + ' (mismo día que referencia)');
-      return nuevoId;
-    } else {
-      const sufijo = "00001";
-      const nuevoId = prefijoHoy + sufijo;
-
-      try {
-        localStorage.setItem('posmovil_ultima_factura_referencia', nuevoId);
-        localStorage.setItem('posmovil_ultimo_prefijo', prefijoHoy);
-        localStorage.setItem('posmovil_ultimo_sufijo', '1');
-        localStorage.setItem('posmovil_fecha_referencia', hoyISO);
-      } catch(e) {}
-
-      console.log('FacturaID generado: ' + nuevoId + ' (nuevo día, díasDiff=' + diasDiff + ')');
-      return nuevoId;
-    }
-  }
-
-  const fechaBase = new Date(1900, 0, 1);
-  const diffMs = now - fechaBase;
-  const diffDias = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-  const fechaSerial = diffDias + 2;
-  const prefijoHoy = Math.floor(fechaSerial).toString().padStart(5, '0');
-  const sufijo = "00001";
-  const nuevoId = prefijoHoy + sufijo;
-
-  try {
-    localStorage.setItem('posmovil_ultima_factura_referencia', nuevoId);
-    localStorage.setItem('posmovil_ultimo_prefijo', prefijoHoy);
-    localStorage.setItem('posmovil_ultimo_sufijo', '1');
-    localStorage.setItem('posmovil_fecha_referencia', hoyISO);
-  } catch(e) {}
-
-  console.log('FacturaID generado (sin referencia): ' + nuevoId);
-  return nuevoId;
-}
-
 // ============================================
 // UTILIDADES
 // ============================================
@@ -1538,9 +1468,7 @@ document.addEventListener("DOMContentLoaded", async function() {
   if (window.Capacitor && window.Capacitor.isNativePlatform()) {
     dbInicializado = await DB.initDatabase();
     console.log("SQLite inicializado:", dbInicializado);
-    if (DB.getStorageMode) {
-      console.log("Modo de almacenamiento:", DB.getStorageMode());
-    }
+    
 
     // Limpieza de ventas antiguas (fire-and-forget, no bloquea UI)
     if (dbInicializado && DB.limpiarVentasAntiguas) {
