@@ -1110,8 +1110,6 @@ window.confirmarAbastecer = async function() {
   var nombre = producto.producto || producto.nombre || "";
 
   try {
-    mostrarMensaje("Procesando abastecimiento...", "info");
-
     var guardado = await DB.guardarAbastecerOffline({
       codigo: codigo,
       nombre: nombre,
@@ -1126,12 +1124,7 @@ window.confirmarAbastecer = async function() {
     renderizarProductos(productos);
 
     cerrarModalAbastecer();
-
-    mostrarMensaje(
-      "Abastecido: " + nombre + " (+" + formatearNumero(cantidad) + ")",
-      "exito",
-      3000
-    );
+    mostrarInventario(true);
 
   } catch (error) {
     console.error("Error en abastecer:", error);
@@ -1143,7 +1136,10 @@ window.confirmarAbastecer = async function() {
 document.addEventListener("DOMContentLoaded", function() {
   var cancelarBtn = document.getElementById("btnCancelarAbastecer");
   if (cancelarBtn) {
-    cancelarBtn.addEventListener("click", cerrarModalAbastecer);
+    cancelarBtn.addEventListener("click", function() {
+      cerrarModalAbastecer();
+      mostrarInventario(true);
+    });
   }
 
   var confirmarBtn = document.getElementById("btnConfirmarAbastecer");
@@ -1781,25 +1777,15 @@ window.mostrarInventario = async function(desdeEditarPrecio) {
       ganEl.style.color = "var(--text-primary)";
     }
 
-    // Tabla
-    var tbody = document.getElementById("invTablaBody");
-    var html = "";
-    for (var i = 0; i < inv.productos.length; i++) {
-      var p = inv.productos[i];
-      var claseGan = p.esperaGanar >= 0 ? "inv-gan-pos" : "inv-gan-neg";
-      html += '<tr>';
-      html += '<td class="inv-cell-nombre">' + p.nombre + ' <span class="inv-cell-stock">x' + formatearNumero(p.cantidad) + '</span></td>';
-      html += '<td class="inv-cell-num">' + formatearMoneda(p.invertido) + '</td>';
-      html += '<td class="inv-cell-num">' + formatearMoneda(p.esperaIngresar) + '</td>';
-      html += '<td class="inv-cell-num ' + claseGan + '">' + formatearMoneda(p.esperaGanar) + '</td>';
-      html += '<td class="inv-cell-num inv-cell-precio" id="invPrice-' + i + '">' + formatearMoneda(p.precio) + '</td>';
-      html += '<td class="inv-cell-action"><button class="inv-btn-edit" onclick="editarPrecioInventario(' + i + ', \'' + p.codigo + '\')" title="Cambiar precio venta">✏️</button></td>';
-      html += '</tr>';
-    }
-    tbody.innerHTML = html;
-
-    // Guardar datos para usar en edición
+    // Guardar datos completos y renderizar tabla
     window._invProductos = inv.productos;
+    renderizarTablaInventario(inv.productos);
+
+    // Resetear búsqueda
+    var invSearch = document.getElementById("invSearchInput");
+    if (invSearch) {
+      invSearch.value = "";
+    }
 
   } catch (error) {
     console.error("Error al cargar inventario:", error);
@@ -1807,13 +1793,59 @@ window.mostrarInventario = async function(desdeEditarPrecio) {
   }
 };
 
+function renderizarTablaInventario(productos) {
+  var tbody = document.getElementById("invTablaBody");
+  if (!tbody) return;
+  var html = "";
+  for (var i = 0; i < productos.length; i++) {
+    var p = productos[i];
+    var claseGan = p.esperaGanar >= 0 ? "inv-gan-pos" : "inv-gan-neg";
+    html += '<tr>';
+    html += '<td class="inv-cell-nombre">' + p.nombre + ' <span class="inv-cell-stock">x' + formatearNumero(p.cantidad) + '</span></td>';
+    html += '<td class="inv-cell-num">' + formatearMoneda(p.invertido) + '</td>';
+    html += '<td class="inv-cell-num">' + formatearMoneda(p.esperaIngresar) + '</td>';
+    html += '<td class="inv-cell-num ' + claseGan + '">' + formatearMoneda(p.esperaGanar) + '</td>';
+    html += '<td class="inv-cell-num inv-cell-precio">' + formatearMoneda(p.precio) + '</td>';
+    html += '<td class="inv-cell-action"><button class="inv-btn-edit" onclick="editarPrecioInventario(\'' + p.codigo + '\')" title="Cambiar precio venta">✏️</button></td>';
+    html += '</tr>';
+  }
+  tbody.innerHTML = html;
+}
+
+var _invFiltroTimer = null;
+document.addEventListener("DOMContentLoaded", function() {
+  var invSearch = document.getElementById("invSearchInput");
+  if (!invSearch) return;
+  invSearch.addEventListener("input", function() {
+    if (_invFiltroTimer) clearTimeout(_invFiltroTimer);
+    _invFiltroTimer = setTimeout(function() {
+      var termino = invSearch.value.toLowerCase().trim();
+      if (!window._invProductos) return;
+      if (!termino) {
+        renderizarTablaInventario(window._invProductos);
+        return;
+      }
+      var filtrados = window._invProductos.filter(function(p) {
+        return (p.nombre || "").toLowerCase().includes(termino);
+      });
+      renderizarTablaInventario(filtrados);
+    }, 140);
+  });
+});
+
 // ============================================
 // EDITAR PRECIO DE VENTA (modal)
 // ============================================
-window.editarPrecioInventario = function(index, codigo) {
+window.editarPrecioInventario = function(codigo) {
   if (!window._invProductos) return;
 
-  var producto = window._invProductos[index];
+  var producto = null;
+  for (var i = 0; i < window._invProductos.length; i++) {
+    if (String(window._invProductos[i].codigo) === String(codigo)) {
+      producto = window._invProductos[i];
+      break;
+    }
+  }
   if (!producto) return;
 
   var modal = document.getElementById("modalEditarPrecio");
@@ -1828,9 +1860,7 @@ window.editarPrecioInventario = function(index, codigo) {
 
   setTimeout(function() { input.focus(); input.select(); }, 100);
 
-  // Guardamos datos para que el botón Confirmar los use
   modal.dataset.codigo = codigo;
-  modal.dataset.index = index;
 };
 
 window.guardarPrecioEditado = function() {
@@ -1842,8 +1872,7 @@ window.guardarPrecioEditado = function() {
   }
 
   var codigo = modal.dataset.codigo;
-  var index = parseInt(modal.dataset.index, 10);
-  if (!codigo || isNaN(index)) {
+  if (!codigo) {
     mostrarMensaje("Error interno: código de producto no encontrado", "error");
     return;
   }
@@ -1863,7 +1892,6 @@ window.guardarPrecioEditado = function() {
   // Cerrar modal antes de la operación y limpiar datos
   modal.classList.add("hidden");
   delete modal.dataset.codigo;
-  delete modal.dataset.index;
 
   // Actualizar precio en la base de datos (SQLite o localStorage)
   DB.actualizarPrecioProducto(codigo, nuevoPrecio).then(function(exito) {
@@ -2220,7 +2248,10 @@ function cerrarFormularioProducto() {
 document.addEventListener("DOMContentLoaded", function() {
   var btnCancelar = document.getElementById("btnCancelarProducto");
   if (btnCancelar) {
-    btnCancelar.addEventListener("click", cerrarFormularioProducto);
+    btnCancelar.addEventListener("click", function() {
+      cerrarFormularioProducto();
+      mostrarInventario(true);
+    });
   }
 
   var btnGuardar = document.getElementById("btnGuardarProducto");
@@ -2261,7 +2292,7 @@ document.addEventListener("DOMContentLoaded", function() {
           });
           renderizarProductos(productos);
           cerrarFormularioProducto();
-          mostrarMensaje(nombre + " agregado", "exito", 3000);
+          mostrarInventario(true);
         } else {
           mostrarMensaje("Error guardando", "error");
         }

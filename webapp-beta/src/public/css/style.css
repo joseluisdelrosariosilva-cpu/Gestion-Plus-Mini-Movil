@@ -1937,6 +1937,38 @@ body {
   width: min(600px, 100%);
 }
 
+.inv-acciones {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.inv-btn-accion {
+  flex: 1;
+  padding: 10px 12px;
+  border: 2px solid;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--bg-secondary);
+  transition: background 0.15s;
+}
+
+.inv-btn-accion:hover {
+  background: var(--bg-input);
+}
+
+.inv-btn-producto {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.inv-btn-abastecer {
+  border-color: var(--success);
+  color: var(--success);
+}
+
 .inv-totales {
   display: flex;
   flex-wrap: nowrap;
@@ -1991,6 +2023,32 @@ body {
   border-left: 3px solid #fdd663;
 }
 .inv-total-ganar .inv-total-monto { color: #fdd663; }
+
+.inv-search-wrapper {
+  margin-bottom: 10px;
+}
+
+.inv-search-wrapper input {
+  width: 100%;
+  padding: 10px 14px;
+  background-color: var(--bg-secondary);
+  border: none;
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-size: 14px;
+  outline: none;
+  box-sizing: border-box;
+  transition: all 0.2s;
+}
+
+.inv-search-wrapper input:focus {
+  background-color: var(--bg-card);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.inv-search-wrapper input::placeholder {
+  color: var(--text-secondary);
+}
 
 .inv-tabla-wrapper {
   overflow-x: auto;
