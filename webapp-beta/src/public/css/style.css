@@ -338,6 +338,57 @@ body {
   font-weight: 600;
 }
 
+/* ===== SECCIONES COLAPSABLES DEL RESUMEN ===== */
+.resumen-seccion-collapsible {
+  margin-bottom: 16px;
+}
+
+.resumen-seccion-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  color: var(--text-primary);
+  font-size: 16px;
+  padding: 10px 0 8px;
+  border-bottom: 1px solid var(--bg-input);
+  margin: 0;
+}
+
+.resumen-seccion-header:hover {
+  color: var(--accent);
+}
+
+.resumen-seccion-icono {
+  font-size: 12px;
+  transition: transform 0.3s;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.resumen-seccion-icono.abierto {
+  transform: rotate(90deg);
+}
+
+.resumen-seccion-contenido {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-height 0.35s ease, opacity 0.22s ease;
+  will-change: max-height, opacity;
+}
+
+.resumen-seccion-contenido.abierto {
+  max-height: 2000px;
+  opacity: 1;
+}
+
+.resumen-seccion-contenido .lista-productos-resumen {
+  margin-top: 10px;
+}
+
 /* ===== RESUMEN: SELECTOR DE RANGO DE FECHAS ===== */
 .resumen-fecha-rango {
   display: flex;
@@ -1375,6 +1426,37 @@ body {
   font-size: 14px;
 }
 
+/* ===== HISTORIAL COLLAPSIBLE ===== */
+.historial-factura-header {
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.historial-icono {
+  font-size: 14px;
+  transition: transform 0.3s;
+  color: var(--accent);
+  margin-right: 4px;
+}
+
+.historial-icono.abierto {
+  transform: rotate(180deg);
+}
+
+.historial-factura-contenido {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: max-height 0.35s ease, opacity 0.22s ease;
+  will-change: max-height, opacity;
+}
+
+.historial-factura-contenido.abierto {
+  max-height: 2000px;
+  opacity: 1;
+}
+
 /* Searchable select for abastecer */
 .searchable-select {
   position: relative;
@@ -1847,4 +1929,209 @@ body {
 
 .btn-eliminar-producto:active {
   transform: scale(0.95);
+}
+
+/* ===== MODAL GESTIONAR INVENTARIO ===== */
+.modal-card-inv {
+  max-width: 600px;
+  width: min(600px, 100%);
+}
+
+.inv-totales {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.inv-total-item {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 8px 4px;
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  border: 1px solid #3c3c3c;
+  text-align: center;
+  overflow: hidden;
+}
+
+.inv-total-label {
+  font-size: 10px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.inv-total-monto {
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.inv-total-invertido {
+  border-left: 3px solid var(--accent);
+}
+.inv-total-invertido .inv-total-monto { color: var(--accent); }
+
+.inv-total-ingresar {
+  border-left: 3px solid var(--success);
+}
+.inv-total-ingresar .inv-total-monto { color: var(--success); }
+
+.inv-total-ganar {
+  border-left: 3px solid #fdd663;
+}
+.inv-total-ganar .inv-total-monto { color: #fdd663; }
+
+.inv-tabla-wrapper {
+  overflow-x: auto;
+  max-height: 50vh;
+  overflow-y: auto;
+  border-radius: 12px;
+  border: 1px solid var(--bg-input);
+}
+
+.inv-tabla {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  min-width: 420px;
+}
+
+.inv-tabla thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.inv-tabla th {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-align: left;
+  padding: 10px 8px;
+  border-bottom: 2px solid var(--bg-input);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.inv-tabla td {
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--bg-input);
+  vertical-align: middle;
+}
+
+.inv-tabla tbody tr:hover {
+  background: rgba(255,255,255,0.03);
+}
+
+.inv-tabla tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.inv-cell-nombre {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
+.inv-cell-stock {
+  color: var(--text-secondary);
+  font-weight: 400;
+  font-size: 12px;
+}
+
+.inv-cell-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.inv-gan-pos {
+  color: var(--success);
+  font-weight: 600;
+}
+
+.inv-gan-neg {
+  color: var(--error);
+  font-weight: 600;
+}
+
+.inv-cell-precio {
+  font-weight: 500;
+}
+
+.inv-cell-action {
+  text-align: center;
+  width: 40px;
+}
+
+.inv-btn-edit {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px;
+  border-radius: 6px;
+  transition: background 0.15s;
+  line-height: 1;
+}
+
+.inv-btn-edit:hover {
+  background: var(--bg-input);
+}
+
+/* ===== MODAL EDITAR PRECIO ===== */
+.inv-edit-price-input {
+  width: 100%;
+  padding: 16px 20px;
+  background: var(--bg-input);
+  border: none;
+  border-radius: 40px;
+  color: var(--text-primary);
+  font-size: 24px;
+  font-weight: 700;
+  text-align: center;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.inv-edit-price-input:focus {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+/* ===== FOOTER DEL MODAL INVENTARIO (centrado) ===== */
+.inv-modal-footer {
+  display: flex;
+  justify-content: center;
+  margin-top: 20px;
+}
+
+.inv-modal-footer .modal-btn {
+  min-width: 120px;
+}
+
+/* Ajuste para pantallas muy angostas: reducimos padding */
+@media (max-width: 380px) {
+  .inv-total-item {
+    padding: 6px 2px;
+  }
+  .inv-total-label {
+    font-size: 9px;
+  }
+  .inv-total-monto {
+    font-size: 12px;
+  }
 }

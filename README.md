@@ -11,6 +11,7 @@
 
 - **POS (Punto de Venta)** — Agregá productos al carrito, dividí el pago entre efectivo y transferencia, y recibí el vuelto calculado automáticamente.
 - **Gestión de Productos** — Alta, edición y eliminación de productos con control de stock.
+- **Gestión de Inventario** — Visualizá inversión, ganancia esperada y precio de venta por producto. Podés editar el precio de venta directamente desde la tabla.
 - **Merma** — Registrá productos dañados o vencidos. Se descuentan automáticamente del stock.
 - **Abastecimiento** — Aumentá el stock de productos existentes.
 - **Gastos** — Registrá gastos del negocio (insumos, servicios, etc.).
@@ -23,7 +24,7 @@
   - Ganancia neta
   - Productos con stock agotado
 - **Protección por Activación** — Sistema de bloqueo por ID de dispositivo con clave de activación.
-- **Contraseña de Acceso** — Protegé el resumen y el historial con contraseña configurable.
+- **Contraseña de Acceso** — Protegé el resumen, el historial y la gestión de inventario con contraseña configurable (compartida entre los tres).
 - **Offline First** — No necesita internet. Todo se almacena localmente.
 
 ## 🛠 Stack Tecnológico

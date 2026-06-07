@@ -23,8 +23,9 @@
                <button onclick="mostrarGasto()">💸 Gasto</button>
                <button onclick="mostrarResumen()">📊 Resumen</button>
               <button onclick="mostrarFormularioProducto()">➕ Nuevo Producto</button>
-              <button onclick="mostrarAbastecer()">📦 Abastecer</button>
-               <button onclick="mostrarHistorialVentas()">📋 Historial</button>
+               <button onclick="mostrarAbastecer()">📦 Abastecer</button>
+                <button onclick="mostrarInventario()">🗂️ Gestionar Inventario</button>
+                <button onclick="mostrarHistorialVentas()">📋 Historial</button>
               </div>
        </div>
     </header>
@@ -176,15 +177,46 @@
           <strong id="resumenGanancia">$0</strong>
         </div>
       </div>
-      <h3>Productos Vendidos</h3>
-      <ul id="listaProductosResumen" class="lista-productos-resumen">
-      </ul>
-      <h3 id="gastosTitulo" class="hidden">💸 Gastos Registrados</h3>
-      <ul id="listaGastosResumen" class="lista-productos-resumen"></ul>
-      <h3 id="mermasTitulo" class="hidden">🗑️ Mermas</h3>
-      <ul id="listaMermasResumen" class="lista-productos-resumen"></ul>
-      <h3 id="stockAgotadosTitulo" class="hidden">⚠️ Productos sin stock</h3>
-      <ul id="listaStockAgotados" class="lista-productos-resumen"></ul>
+
+      <div class="resumen-seccion-collapsible" id="seccion-vendidos">
+        <h3 class="resumen-seccion-header" onclick="toggleResumenSeccion('vendidos')">
+          <span class="resumen-seccion-icono" id="icono-vendidos">▶</span>
+          Productos Vendidos
+        </h3>
+        <div class="resumen-seccion-contenido" id="contenido-vendidos">
+          <ul id="listaProductosResumen" class="lista-productos-resumen"></ul>
+        </div>
+      </div>
+
+      <div class="resumen-seccion-collapsible hidden" id="seccion-gastos">
+        <h3 class="resumen-seccion-header" onclick="toggleResumenSeccion('gastos')">
+          <span class="resumen-seccion-icono" id="icono-gastos">▶</span>
+          💸 Gastos Registrados
+        </h3>
+        <div class="resumen-seccion-contenido" id="contenido-gastos">
+          <ul id="listaGastosResumen" class="lista-productos-resumen"></ul>
+        </div>
+      </div>
+
+      <div class="resumen-seccion-collapsible hidden" id="seccion-mermas">
+        <h3 class="resumen-seccion-header" onclick="toggleResumenSeccion('mermas')">
+          <span class="resumen-seccion-icono" id="icono-mermas">▶</span>
+          🗑️ Mermas
+        </h3>
+        <div class="resumen-seccion-contenido" id="contenido-mermas">
+          <ul id="listaMermasResumen" class="lista-productos-resumen"></ul>
+        </div>
+      </div>
+
+      <div class="resumen-seccion-collapsible hidden" id="seccion-stock">
+        <h3 class="resumen-seccion-header" onclick="toggleResumenSeccion('stock')">
+          <span class="resumen-seccion-icono" id="icono-stock">▶</span>
+          ⚠️ Productos sin stock
+        </h3>
+        <div class="resumen-seccion-contenido" id="contenido-stock">
+          <ul id="listaStockAgotados" class="lista-productos-resumen"></ul>
+        </div>
+      </div>
     </div>
     <div class="modal-actions" style="display: flex; justify-content: center;">
       <button type="button" id="modalCerrarResumen" class="modal-btn modal-btn-primario">Cerrar</button>
@@ -354,6 +386,69 @@
     <div id="proteccionExito" class="proteccion-exito hidden">
       <div class="proteccion-exito-icono">✅</div>
       <span>Dispositivo activado correctamente</span>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Gestionar Inventario -->
+<div id="modalInventario" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modalInventarioTitulo">
+  <div class="modal-card modal-card-inv">
+    <h2 id="modalInventarioTitulo">🗂️ Gestionar Inventario</h2>
+
+    <!-- Totales -->
+    <div class="inv-totales" id="invTotales">
+      <div class="inv-total-item inv-total-invertido">
+        <span class="inv-total-label">Invertido</span>
+        <strong class="inv-total-monto" id="invTotalInv">$0</strong>
+      </div>
+      <div class="inv-total-item inv-total-ingresar">
+        <span class="inv-total-label">Espera Ingresar</span>
+        <strong class="inv-total-monto" id="invTotalEsp">$0</strong>
+      </div>
+      <div class="inv-total-item inv-total-ganar">
+        <span class="inv-total-label">Espera Ganar</span>
+        <strong class="inv-total-monto" id="invTotalGan">$0</strong>
+      </div>
+    </div>
+
+    <!-- Tabla de productos -->
+    <div class="inv-tabla-wrapper">
+      <table class="inv-tabla">
+        <thead>
+          <tr>
+            <th>Producto</th>
+            <th>Inv.</th>
+            <th>Ing.</th>
+            <th>Gan.</th>
+            <th>P. Vta</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="invTablaBody">
+        </tbody>
+      </table>
+    </div>
+
+    <div class="inv-modal-footer">
+      <button type="button" id="modalCerrarInventario" class="modal-btn modal-btn-primario" onclick="cerrarModalInventario()">Cerrar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Editar Precio -->
+<div id="modalEditarPrecio" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modalEditarPrecioTitulo">
+  <div class="modal-card" style="max-width: 360px;">
+    <h2 id="modalEditarPrecioTitulo">✏️ Editar Precio</h2>
+    <p class="modal-mensaje" id="modalEditarPrecioNombre">Producto</p>
+
+    <div class="form-group">
+      <label for="inputEditarPrecio">Nuevo precio de venta ($)</label>
+      <input type="number" id="inputEditarPrecio" class="inv-edit-price-input" min="0" step="0.001" value="0" placeholder="0" autofocus>
+    </div>
+
+    <div class="modal-actions">
+      <button type="button" id="btnCancelarEditarPrecio" class="modal-btn modal-btn-secundario">Cancelar</button>
+      <button type="button" id="btnConfirmarEditarPrecio" class="modal-btn modal-btn-primario" onclick="guardarPrecioEditado()">Guardar</button>
     </div>
   </div>
 </div>

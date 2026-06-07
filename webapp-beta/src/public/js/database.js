@@ -507,6 +507,51 @@ async function getProductosLocal() {
 }
 
 // ============================================
+// OBTENER INVENTARIO ACTUAL (stock * precio)
+// ============================================
+async function getInventarioActual() {
+  var productos = await getProductosLocal();
+
+  var totalInvertido = 0;
+  var totalEsperaIngresar = 0;
+  var productosData = [];
+
+  for (var i = 0; i < productos.length; i++) {
+    var p = productos[i];
+    var cantidad = Number(p.disponibilidad || 0);
+    if (cantidad <= 0) continue;
+
+    var precioCosto = Number(p.precio_costo || 0);
+    var precioVenta = Number(p.precio || 0);
+    var invertido = cantidad * precioCosto;
+    var esperaIngresar = cantidad * precioVenta;
+
+    totalInvertido += invertido;
+    totalEsperaIngresar += esperaIngresar;
+
+    productosData.push({
+      codigo: p.codigo,
+      nombre: p.nombre || p.producto || "Producto",
+      cantidad: cantidad,
+      precio_costo: precioCosto,
+      precio: precioVenta,
+      invertido: invertido,
+      esperaIngresar: esperaIngresar,
+      esperaGanar: esperaIngresar - invertido
+    });
+  }
+
+  productosData.sort(function(a, b) { return b.esperaGanar - a.esperaGanar; });
+
+  return {
+    totalInvertido: Math.round(totalInvertido * 1000) / 1000,
+    totalEsperaIngresar: Math.round(totalEsperaIngresar * 1000) / 1000,
+    totalEsperaGanar: Math.round((totalEsperaIngresar - totalInvertido) * 1000) / 1000,
+    productos: productosData
+  };
+}
+
+// ============================================
 // GUARDAR PRODUCTOS EN SQLite (cache offline)
 // ============================================
 async function syncProductosLocal(productos) {
@@ -859,6 +904,32 @@ async function guardarMermaOffline(merma) {
 // ============================================
 
 // Actualizar stock de un producto (sumar cantidad)
+// ============================================
+// ACTUALIZAR PRECIO DE VENTA DE UN PRODUCTO
+// ============================================
+async function actualizarPrecioProducto(codigo, nuevoPrecio) {
+  return conSQLite(
+    async (db) => {
+      await db.execute(
+        "UPDATE productos SET precio = ? WHERE codigo = ?",
+        [Number(nuevoPrecio), codigo]
+      );
+      return true;
+    },
+    function() {
+      var productosLocal = leerLocal(LS_KEYS.productos, []);
+      for (var i = 0; i < productosLocal.length; i++) {
+        if (productosLocal[i].codigo === codigo) {
+          productosLocal[i].precio = Number(nuevoPrecio);
+          guardarLocal(LS_KEYS.productos, productosLocal);
+          return true;
+        }
+      }
+      return false;
+    }
+  );
+}
+
 async function actualizarStockProducto(codigo, cantidadSumar) {
   return conSQLite(
     async (db) => {
@@ -1498,6 +1569,7 @@ window.Database = {
   initDatabase: initDatabase,
   getStorageMode: function() { return storageMode; },
   getProductosLocal: getProductosLocal,
+  getInventarioActual: getInventarioActual,
   syncProductosLocal: syncProductosLocal,
   guardarVentaOffline: guardarVentaOffline,
   getResumenOffline: getResumenOffline,
@@ -1510,6 +1582,7 @@ window.Database = {
   guardarEntradaProductoCompleto: guardarEntradaProductoCompleto,
   // Funciones para abastecer
   actualizarStockProducto: actualizarStockProducto,
+  actualizarPrecioProducto: actualizarPrecioProducto,
   guardarAbastecerOffline: guardarAbastecerOffline,
   // Funciones para gastos
   guardarGastoOffline: guardarGastoOffline,

@@ -292,16 +292,13 @@ function cerrarModalVuelto(confirmado) {
 // CARGAR PRODUCTOS (solo desde base local)
 // ============================================
 async function cargarProductos() {
-  console.log("Cargando productos...");
-  mostrarMensaje("Cargando...", "info");
 
   if (dbInicializado && DB.getProductosLocal) {
     var productosLocales = await DB.getProductosLocal();
     if (productosLocales.length > 0) {
       productos = productosLocales;
       renderizarProductos(productos);
-      mostrarMensaje("Cargados " + productosLocales.length + " productos", "info", 3000);
-      console.log("Cargados " + productosLocales.length + " productos");
+      // Productos listos
       return;
     }
   }
@@ -1616,10 +1613,10 @@ function actualizarResumenUI(data) {
   var listaEl = document.getElementById("listaProductosResumen");
   var totalGastosEl = document.getElementById("resumenTotalGastos");
   var listaGastosEl = document.getElementById("listaGastosResumen");
-  var gastosTitulo = document.getElementById("gastosTitulo");
+  var seccionGastos = document.getElementById("seccion-gastos");
   var totalMermasEl = document.getElementById("resumenTotalMermas");
   var listaMermasEl = document.getElementById("listaMermasResumen");
-  var mermasTitulo = document.getElementById("mermasTitulo");
+  var seccionMermas = document.getElementById("seccion-mermas");
 
   if (totalEl) totalEl.textContent = formatearMoneda(data.totalIngresado || 0);
   if (efectivoEl) efectivoEl.textContent = formatearMoneda(data.efectivo || 0);
@@ -1641,13 +1638,13 @@ function actualizarResumenUI(data) {
 
   var totalGastos = data.totalGastos || 0;
   if (totalGastosEl) totalGastosEl.textContent = formatearMoneda(totalGastos);
-  if (listaGastosEl && gastosTitulo) {
+  if (listaGastosEl && seccionGastos) {
     var gastos = data.gastos || [];
     if (gastos.length === 0) {
       listaGastosEl.innerHTML = "";
-      gastosTitulo.classList.add("hidden");
+      seccionGastos.classList.add("hidden");
     } else {
-      gastosTitulo.classList.remove("hidden");
+      seccionGastos.classList.remove("hidden");
       var html = "";
       for (var j = 0; j < gastos.length; j++) {
         var g = gastos[j];
@@ -1662,13 +1659,13 @@ function actualizarResumenUI(data) {
 
   var totalMermas = data.totalMermas || 0;
   if (totalMermasEl) totalMermasEl.textContent = formatearMoneda(totalMermas);
-  if (listaMermasEl && mermasTitulo) {
+  if (listaMermasEl && seccionMermas) {
     var mermas = data.mermas || [];
     if (mermas.length === 0) {
       listaMermasEl.innerHTML = "";
-      mermasTitulo.classList.add("hidden");
+      seccionMermas.classList.add("hidden");
     } else {
-      mermasTitulo.classList.remove("hidden");
+      seccionMermas.classList.remove("hidden");
       var mHtml = "";
       for (var mi = 0; mi < mermas.length; mi++) {
         var m = mermas[mi];
@@ -1699,14 +1696,14 @@ function actualizarResumenUI(data) {
   }
 
   var stockAgotadosEl = document.getElementById("listaStockAgotados");
-  var stockAgotadosTitulo = document.getElementById("stockAgotadosTitulo");
-  if (stockAgotadosEl && stockAgotadosTitulo) {
+  var seccionStock = document.getElementById("seccion-stock");
+  if (stockAgotadosEl && seccionStock) {
     var stockAgotados = data.stockAgotados || [];
     if (stockAgotados.length === 0) {
       stockAgotadosEl.innerHTML = "";
-      stockAgotadosTitulo.classList.add("hidden");
+      seccionStock.classList.add("hidden");
     } else {
-      stockAgotadosTitulo.classList.remove("hidden");
+      seccionStock.classList.remove("hidden");
       var saHtml = "";
       for (var k = 0; k < stockAgotados.length; k++) {
         var sa = stockAgotados[k];
@@ -1717,6 +1714,234 @@ function actualizarResumenUI(data) {
       }
       stockAgotadosEl.innerHTML = saHtml;
     }
+  }
+}
+
+// ============================================
+// TOGGLE SECCIONES DEL RESUMEN (collapsible)
+// ============================================
+window.toggleResumenSeccion = function(seccion) {
+  var contenido = document.getElementById("contenido-" + seccion);
+  var icono = document.getElementById("icono-" + seccion);
+  if (!contenido || !icono) return;
+  contenido.classList.toggle("abierto");
+  icono.classList.toggle("abierto");
+};
+
+// ============================================
+// TOGGLE FACTURAS EN HISTORIAL (collapsible)
+// ============================================
+window.toggleHistorialFactura = function(index) {
+  var contenido = document.getElementById("historialContent-" + index);
+  var icono = document.getElementById("historialIcon-" + index);
+  if (!contenido || !icono) return;
+  contenido.classList.toggle("abierto");
+  icono.classList.toggle("abierto");
+};
+
+// ============================================
+// MOSTRAR MODAL GESTIONAR INVENTARIO
+// ============================================
+window.mostrarInventario = async function(desdeEditarPrecio) {
+  if (!desdeEditarPrecio) {
+    var acceso = await verificarPassword();
+    if (!acceso) return;
+  }
+
+  var modal = document.getElementById("modalInventario");
+  if (!modal) return;
+
+  if (!dbInicializado || !DB.getInventarioActual) {
+    mostrarMensaje("Base de datos no disponible", "error");
+    return;
+  }
+
+  modal.classList.remove("hidden");
+
+  try {
+    var inv = await DB.getInventarioActual();
+
+    var totalesEl = document.getElementById("invTotales");
+    if (!inv || inv.productos.length === 0) {
+      totalesEl.innerHTML = '<span style="color:var(--text-secondary)">No hay productos con stock</span>';
+      document.getElementById("invTablaBody").innerHTML = "";
+      return;
+    }
+
+    // Totales
+    document.getElementById("invTotalInv").textContent = formatearMoneda(inv.totalInvertido);
+    document.getElementById("invTotalEsp").textContent = formatearMoneda(inv.totalEsperaIngresar);
+    var ganEl = document.getElementById("invTotalGan");
+    ganEl.textContent = formatearMoneda(inv.totalEsperaGanar);
+    if (inv.totalEsperaGanar > 0) {
+      ganEl.style.color = "#81c995";
+    } else if (inv.totalEsperaGanar < 0) {
+      ganEl.style.color = "#f28b82";
+    } else {
+      ganEl.style.color = "var(--text-primary)";
+    }
+
+    // Tabla
+    var tbody = document.getElementById("invTablaBody");
+    var html = "";
+    for (var i = 0; i < inv.productos.length; i++) {
+      var p = inv.productos[i];
+      var claseGan = p.esperaGanar >= 0 ? "inv-gan-pos" : "inv-gan-neg";
+      html += '<tr>';
+      html += '<td class="inv-cell-nombre">' + p.nombre + ' <span class="inv-cell-stock">x' + formatearNumero(p.cantidad) + '</span></td>';
+      html += '<td class="inv-cell-num">' + formatearMoneda(p.invertido) + '</td>';
+      html += '<td class="inv-cell-num">' + formatearMoneda(p.esperaIngresar) + '</td>';
+      html += '<td class="inv-cell-num ' + claseGan + '">' + formatearMoneda(p.esperaGanar) + '</td>';
+      html += '<td class="inv-cell-num inv-cell-precio" id="invPrice-' + i + '">' + formatearMoneda(p.precio) + '</td>';
+      html += '<td class="inv-cell-action"><button class="inv-btn-edit" onclick="editarPrecioInventario(' + i + ', \'' + p.codigo + '\')" title="Cambiar precio venta">✏️</button></td>';
+      html += '</tr>';
+    }
+    tbody.innerHTML = html;
+
+    // Guardar datos para usar en edición
+    window._invProductos = inv.productos;
+
+  } catch (error) {
+    console.error("Error al cargar inventario:", error);
+    mostrarMensaje("Error al cargar inventario", "error");
+  }
+};
+
+// ============================================
+// EDITAR PRECIO DE VENTA (modal)
+// ============================================
+window.editarPrecioInventario = function(index, codigo) {
+  if (!window._invProductos) return;
+
+  var producto = window._invProductos[index];
+  if (!producto) return;
+
+  var modal = document.getElementById("modalEditarPrecio");
+  var nombreEl = document.getElementById("modalEditarPrecioNombre");
+  var input = document.getElementById("inputEditarPrecio");
+
+  if (!modal || !nombreEl || !input) return;
+
+  nombreEl.textContent = producto.nombre;
+  input.value = formatearNumero(producto.precio);
+  modal.classList.remove("hidden");
+
+  setTimeout(function() { input.focus(); input.select(); }, 100);
+
+  // Guardamos datos para que el botón Confirmar los use
+  modal.dataset.codigo = codigo;
+  modal.dataset.index = index;
+};
+
+window.guardarPrecioEditado = function() {
+  var modal = document.getElementById("modalEditarPrecio");
+  var input = document.getElementById("inputEditarPrecio");
+  if (!modal || !input) {
+    mostrarMensaje("Error interno: no se encontró el modal", "error");
+    return;
+  }
+
+  var codigo = modal.dataset.codigo;
+  var index = parseInt(modal.dataset.index, 10);
+  if (!codigo || isNaN(index)) {
+    mostrarMensaje("Error interno: código de producto no encontrado", "error");
+    return;
+  }
+
+  var valorInput = input.value.trim();
+  if (valorInput === "") {
+    mostrarMensaje("Ingresá un precio", "error");
+    return;
+  }
+
+  var nuevoPrecio = parsearNumero(valorInput);
+  if (nuevoPrecio < 0) {
+    mostrarMensaje("Precio inválido", "error");
+    return;
+  }
+
+  // Cerrar modal antes de la operación y limpiar datos
+  modal.classList.add("hidden");
+  delete modal.dataset.codigo;
+  delete modal.dataset.index;
+
+  // Actualizar precio en la base de datos (SQLite o localStorage)
+  DB.actualizarPrecioProducto(codigo, nuevoPrecio).then(function(exito) {
+    if (exito) {
+      // Refrescar vista del inventario (sin pedir password, ya está autorizado)
+      window.mostrarInventario(true);
+
+      // Refrescar también la lista principal de productos
+      if (DB.getProductosLocal) {
+        DB.getProductosLocal().then(function(productosLocales) {
+          if (productosLocales.length > 0) {
+            productos = productosLocales;
+            renderizarProductos(productos);
+            reapplySearchFilter();
+          }
+        });
+      }
+    } else {
+      mostrarMensaje("Error: no se pudo guardar el precio en la base de datos", "error");
+    }
+  });
+}
+
+function cerrarModalEditarPrecio() {
+  var modal = document.getElementById("modalEditarPrecio");
+  if (modal) {
+    modal.classList.add("hidden");
+    delete modal.dataset.codigo;
+    delete modal.dataset.index;
+  }
+}
+
+document.addEventListener("DOMContentLoaded", function() {
+  var btnCancelar = document.getElementById("btnCancelarEditarPrecio");
+  var btnConfirmar = document.getElementById("btnConfirmarEditarPrecio");
+  var modal = document.getElementById("modalEditarPrecio");
+  var input = document.getElementById("inputEditarPrecio");
+
+  if (btnCancelar) {
+    btnCancelar.addEventListener("click", cerrarModalEditarPrecio);
+  }
+
+  // NOTA: btnConfirmar usa onclick directo en HTML
+
+  if (modal) {
+    modal.addEventListener("click", function(e) {
+      if (e.target === modal) cerrarModalEditarPrecio();
+    });
+  }
+
+  if (input) {
+    input.addEventListener("keydown", function(e) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        guardarPrecioEditado();
+      }
+      if (e.key === "Escape") {
+        cerrarModalEditarPrecio();
+      }
+    });
+
+    input.addEventListener("focus", function() {
+      if (parseFloat(this.value) === 0) this.value = "";
+    });
+    input.addEventListener("blur", function() {
+      if (this.value === "") this.value = "0";
+    });
+  }
+});
+
+// ============================================
+// CERRAR MODAL GESTIONAR INVENTARIO
+// ============================================
+function cerrarModalInventario() {
+  var modal = document.getElementById("modalInventario");
+  if (modal) {
+    modal.classList.add("hidden");
+    window._invProductos = null;
   }
 }
 
@@ -1740,6 +1965,13 @@ document.addEventListener("DOMContentLoaded", function() {
   if (modalR) {
     modalR.addEventListener("click", function(e) {
       if (e.target === modalR) cerrarModalResumen();
+    });
+  }
+
+  var modalInv = document.getElementById("modalInventario");
+  if (modalInv) {
+    modalInv.addEventListener("click", function(e) {
+      if (e.target === modalInv) cerrarModalInventario();
     });
   }
 
@@ -1809,18 +2041,18 @@ async function cargarHistorial(fechaISO) {
       var estadoClass = "synced";
 
       html += '<div class="historial-factura ' + estadoClass + '">';
-      html += '<div class="historial-factura-header">';
+      html += '<div class="historial-factura-header" onclick="toggleHistorialFactura(' + i + ')">';
       html += '<div class="historial-factura-info">';
       html += '<span class="historial-factura-id">Factura: ' + f.facturaId + '</span>';
       html += '<span class="historial-factura-fecha">' + (f.fechaHora ? new Date(f.fechaHora).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", hour12: true }) : "") + '</span>';
       html += '</div>';
       html += '<div class="historial-factura-estado">';
-
-      html += '<button class="btn-deshacer" onclick="deshacerVentaConfirmar(\'' + f.facturaId.replace(/'/g, "\\'") + '\')" title="Deshacer venta">Deshacer</button>';
-
+      html += '<span class="historial-icono" id="historialIcon-' + i + '">▼</span>';
+      html += '<button class="btn-deshacer" onclick="event.stopPropagation();deshacerVentaConfirmar(\'' + f.facturaId.replace(/'/g, "\\'") + '\')" title="Deshacer venta">Deshacer</button>';
       html += '</div>';
       html += '</div>';
 
+      html += '<div class="historial-factura-contenido" id="historialContent-' + i + '">';
       html += '<div class="historial-productos">';
       html += '<table class="historial-tabla">';
       html += '<thead><tr><th>Producto</th><th>Cant</th><th>P. Unit</th><th>Subtotal</th></tr></thead>';
@@ -1845,6 +2077,7 @@ async function cargarHistorial(fechaISO) {
       if (f.efectivo > 0) html += 'Ef: ' + formatearMoneda(f.efectivo) + ' ';
       if (f.transferencia > 0) html += 'Trans: ' + formatearMoneda(f.transferencia);
       html += '</span>';
+      html += '</div>';
       html += '</div>';
 
       html += '</div>';
