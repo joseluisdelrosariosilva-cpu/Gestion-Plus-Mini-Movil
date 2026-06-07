@@ -108,6 +108,25 @@
 </div>
 </div>
 
+<!-- Modal para confirmar Merma -->
+<div id="modalMerma" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modalMermaTitulo">
+  <div class="modal-card">
+    <h2 id="modalMermaTitulo">📉 Confirmar Merma</h2>
+    <p class="modal-mensaje">¿Desea sacar estas cantidades como merma?</p>
+
+    <div id="modalMermaLista" class="merma-lista">
+      <!-- se llena dinámicamente -->
+    </div>
+
+    <p class="modal-mensaje merma-stock-nota">Se descontarán del stock.</p>
+
+    <div class="modal-actions">
+      <button type="button" id="btnCancelarMerma" class="modal-btn modal-btn-secundario">Cancelar</button>
+      <button type="button" id="btnConfirmarMerma" class="modal-btn modal-btn-primario">Confirmar merma</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal de Resumen -->
 <div id="modalResumen" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="modalResumenTitulo">
   <div class="modal-card">
@@ -180,8 +199,8 @@
     <h2 id="modalHistorialTitulo">📋 Historial de Ventas</h2>
     
     <!-- Selector de fecha -->
-    <div class="resumen-fecha-selector" style="margin-bottom: 15px;">
-      <label for="inputFechaHistorial" style="margin-right: 10px;">📅 Fecha:</label>
+    <div class="historial-fecha-campo">
+      <label for="inputFechaHistorial">📅 Fecha</label>
       <input type="date" id="inputFechaHistorial" value="">
     </div>
     

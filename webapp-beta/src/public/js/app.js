@@ -229,6 +229,7 @@ const DB = window.Database || {};
 // Estado de la aplicación
 let productos = [];
 let carrito = [];
+var _productosMermaPendientes = [];
 
 // Elementos del DOM
 const productosContainer = document.getElementById("productosContainer");
@@ -844,9 +845,13 @@ async function finalizarVenta() {
 }
 
 // ============================================
-// PROCESAR MERMA DESDE CARRITO ACTUAL
+// MERMA — MODAL Y PROCESAMIENTO
 // ============================================
-window.procesarMerma = async function() {
+
+window.procesarMerma = function() {
+  var menu = document.getElementById("menuDesplegable");
+  if (menu) menu.classList.add("hidden");
+
   const productosConCantidad = carrito.filter(item => item.cantidad > 0);
 
   if (productosConCantidad.length === 0) {
@@ -854,16 +859,34 @@ window.procesarMerma = async function() {
     return;
   }
 
-  let listaProductos = productosConCantidad.map(p =>
-    p.nombre + ": " + formatearNumero(p.cantidad) + " unidades"
-  ).join('\n');
+  _productosMermaPendientes = productosConCantidad;
 
-  const confirmar = confirm(
-    "Desea sacar estas cantidades como merma?\n\n" + listaProductos + "\n\nSe descontarán del stock."
-  );
+  var listaContainer = document.getElementById("modalMermaLista");
+  if (listaContainer) {
+    listaContainer.innerHTML = productosConCantidad.map(function(p) {
+      var nombre = (p.nombre || "").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      return '<div class="merma-item">' +
+        '<span class="merma-item-nombre">' + nombre + '</span>' +
+        '<span class="merma-item-cantidad">' + formatearNumero(p.cantidad) + ' uds</span>' +
+        '</div>';
+    }).join('');
+  }
 
-  if (!confirmar) {
-    mostrarMensaje("Merma cancelada", "info", 2000);
+  var modal = document.getElementById("modalMerma");
+  if (modal) modal.classList.remove("hidden");
+};
+
+function cerrarModalMerma() {
+  var modal = document.getElementById("modalMerma");
+  if (modal) modal.classList.add("hidden");
+  _productosMermaPendientes = [];
+}
+
+window.confirmarMerma = async function() {
+  var prodsMerma = _productosMermaPendientes;
+  if (!Array.isArray(prodsMerma) || prodsMerma.length === 0) {
+    cerrarModalMerma();
+    mostrarMensaje("No hay productos para mermar", "warning");
     return;
   }
 
@@ -878,14 +901,17 @@ window.procesarMerma = async function() {
              String(f.getSeconds()).padStart(2,'0') + '.' +
              String(f.getMilliseconds()).padStart(3,'0');
     })(),
-    productos: productosConCantidad.map(item => ({
-      codigo: item.codigo,
-      nombre: item.nombre,
-      cantidad: item.cantidad,
-    }))
+    productos: prodsMerma.map(function(item) {
+      return {
+        codigo: item.codigo,
+        nombre: item.nombre,
+        cantidad: item.cantidad,
+      };
+    })
   };
 
   try {
+    cerrarModalMerma();
     mostrarMensaje("Guardando merma...", "info");
 
     var guardado = await DB.guardarMermaOffline(mermaData);
@@ -905,13 +931,13 @@ window.procesarMerma = async function() {
     cerrarCarrito();
 
     mostrarMensaje(
-      "Merma guardada",
+      "✅ Merma guardada (" + prodsMerma.length + " productos)",
       "exito",
       3000
     );
 
   } catch (error) {
-    console.error("Error en procesarMerma:", error);
+    console.error("Error en confirmarMerma:", error);
     mostrarMensaje(error.message, "error");
   }
 }
@@ -1256,6 +1282,28 @@ document.addEventListener("DOMContentLoaded", function() {
         e.preventDefault();
         window.confirmarGasto();
       }
+    });
+  }
+});
+
+// Event listeners para merma
+document.addEventListener("DOMContentLoaded", function() {
+  var cancelarBtn = document.getElementById("btnCancelarMerma");
+  if (cancelarBtn) {
+    cancelarBtn.addEventListener("click", cerrarModalMerma);
+  }
+
+  var confirmarBtn = document.getElementById("btnConfirmarMerma");
+  if (confirmarBtn) {
+    confirmarBtn.addEventListener("click", function() {
+      window.confirmarMerma();
+    });
+  }
+
+  var modalMerma = document.getElementById("modalMerma");
+  if (modalMerma) {
+    modalMerma.addEventListener("click", function(e) {
+      if (e.target === modalMerma) cerrarModalMerma();
     });
   }
 });
@@ -1758,24 +1806,17 @@ async function cargarHistorial(fechaISO) {
 
     for (var i = 0; i < facturas.length; i++) {
       var f = facturas[i];
-      var esSynced = f.synced === 1;
-      var estadoClass = esSynced ? "synced" : "pendiente";
-      var estadoTexto = esSynced ? "Sincronizado" : "Pendiente";
+      var estadoClass = "synced";
 
       html += '<div class="historial-factura ' + estadoClass + '">';
       html += '<div class="historial-factura-header">';
       html += '<div class="historial-factura-info">';
       html += '<span class="historial-factura-id">Factura: ' + f.facturaId + '</span>';
-      html += '<span class="historial-factura-fecha">' + (f.fechaHora || "") + '</span>';
+      html += '<span class="historial-factura-fecha">' + (f.fechaHora ? new Date(f.fechaHora).toLocaleTimeString("es-AR", { hour: "2-digit", minute: "2-digit", hour12: true }) : "") + '</span>';
       html += '</div>';
       html += '<div class="historial-factura-estado">';
-      html += '<span class="estado-badge ' + estadoClass + '">' + estadoTexto + '</span>';
 
-      if (!esSynced) {
-        html += '<button class="btn-deshacer" onclick="deshacerVentaConfirmar(\'' + f.facturaId.replace(/'/g, "\\'") + '\')" title="Deshacer venta">Deshacer</button>';
-      } else {
-        html += '<button class="btn-deshacer" disabled title="No se puede deshacer una venta sincronizada">Deshacer</button>';
-      }
+      html += '<button class="btn-deshacer" onclick="deshacerVentaConfirmar(\'' + f.facturaId.replace(/'/g, "\\'") + '\')" title="Deshacer venta">Deshacer</button>';
 
       html += '</div>';
       html += '</div>';

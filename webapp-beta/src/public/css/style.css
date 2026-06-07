@@ -1051,6 +1051,50 @@ body {
   display: none;
 }
 
+/* ===== MODAL MERMA ===== */
+.merma-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.merma-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--bg-secondary);
+}
+
+.merma-item-nombre {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.merma-item-cantidad {
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 700;
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+
+.merma-stock-nota {
+  font-size: 13px;
+  color: var(--warning);
+  margin-bottom: 16px;
+}
+
 .loading {
   text-align: center;
   padding: 40px;
@@ -1180,6 +1224,48 @@ body {
 
 /* ===== HISTORIAL DE VENTAS ===== */
 
+.historial-fecha-campo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 15px;
+  background: var(--bg-secondary);
+  padding: 8px 16px;
+  border-radius: 40px;
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+.historial-fecha-campo label {
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.historial-fecha-campo input[type="date"] {
+  flex: 1;
+  padding: 10px 14px;
+  background: var(--bg-input);
+  border: none;
+  border-radius: 40px;
+  color: var(--text-primary);
+  font-size: 15px;
+  font-weight: 500;
+  font-family: inherit;
+  outline: none;
+  min-width: 0;
+}
+
+.historial-fecha-campo input[type="date"]:focus {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.historial-fecha-campo input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.7);
+  cursor: pointer;
+  padding: 4px;
+}
+
 .historial-contenido {
   padding: 10px;
 }
@@ -1195,10 +1281,6 @@ body {
 
 .historial-factura.synced {
   border-left-color: #4caf50;
-}
-
-.historial-factura.pendiente {
-  border-left-color: #ff9800;
 }
 
 .historial-factura-header {
@@ -1230,23 +1312,6 @@ body {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.estado-badge {
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 12px;
-  font-weight: bold;
-}
-
-.estado-badge.synced {
-  background-color: #4caf50;
-  color: white;
-}
-
-.estado-badge.pendiente {
-  background-color: #ff9800;
-  color: white;
 }
 
 .btn-deshacer {
